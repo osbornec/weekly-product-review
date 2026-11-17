@@ -8,3 +8,11 @@ __pycache__/
 .DS_Store
 Thumbs.db
 wpr-output/
+
+# Private planning, handovers, and tester feedback
+.local/
+BACKLOG.md
+HANDOVER.md
+IMPLEMENTATION_PLAN.md
+*-feedback.md
+.env
