@@ -1,0 +1,10 @@
+# Local reference inputs and scratch exports
+inputs/
+*.xlsx
+*.csv
+*.html
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+wpr-output/
