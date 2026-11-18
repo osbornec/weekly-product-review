@@ -43,6 +43,6 @@ The reporter then rebuilt with the updated local package without editing evidenc
 
 ## Scope limits
 
-These checks establish the tested local instructions, calculations, files and recovery paths. They do not establish every agent's behaviour, authenticated execution through additional connectors, native cloud rendering or logged-out scheduling. Those checks retain the limits recorded in [recovery-and-compatibility.md](recovery-and-compatibility.md).
+This beta evaluated local instructions, calculations, files and recovery paths. The [release verification](release-verification.md) records separate native Google tests.
 
-No private reference evidence is used in this beta, no cloud reports or schedules are created, and nothing is pushed or published. Raw beta records, scoring criteria and detailed machine-local evidence remain in the ignored local workbench rather than the installed Skill.
+The beta used synthetic fixtures and local destinations. Raw scoring records stay in the ignored local workbench.

@@ -10,6 +10,8 @@ All Weekly Product Review state lives in `wpr/` as plain, agent-readable Markdow
 - Collector outputs should follow [collector-contract.md](collector-contract.md); see the fully synthetic [creator example](../examples/creator-wpr/README.md).
 - `wpr/reviews/YYYY-MM-DD-wpr.md`: Weekly review brief (highlights, carry-over actions, anecdotes, discussion, decisions).
 
+When starting from the templates, replace the sample dates and year with the project's reporting year and configured week-ending day. Keep the date in each review filename aligned with its heading.
+
 ---
 
 ## 1. `wpr/wpr-config.md`
@@ -153,14 +155,14 @@ Keep one dated Markdown review per week in the flat `reviews/` folder and use on
 ## 4. `scripts/wpr_sync.py` CLI Commands
 
 - `validate --wpr-dir wpr`: Check catalog IDs, types, formats, formulas, analyses, and missing manual entries.
-- `add-week --wpr-dir wpr [--date YYYY-MM-DD] [--force] [--dry-run]`: Insert a blank preview week in date order without regenerating existing weeks. Reject dates on the wrong weekday. `--force` resets the specified week's metric cells and reopens it as preview while retaining its comparison group and surrounding content.
+- `add-week --wpr-dir wpr [--date YYYY-MM-DD] [--force] [--dry-run]`: Insert a blank preview week in date order. The default is seven days after the latest recorded week, or the last configured week-ending date when there is no history. `--force` resets the specified week's metric cells and clears its coverage and missing-source fields while retaining its comparison group and surrounding content. Use it only when resetting that week.
 - `import-xlsx --wpr-dir wpr --xlsx path.xlsx [--dry-run]`: Pull manual metric edits from all quarter tabs of an `.xlsx` export into `metrics-data.md`.
 - `import-csv --wpr-dir wpr --csv path.csv [--dry-run]`: Pull manual metric edits from a single-tab `.csv` export.
-- `build --wpr-dir wpr --out-dir wpr-output [--active-tab-first] [--overwrite-review]`: Generate `wpr-workbook.xlsx`, `wpr-review-brief.md`, `wpr-review-brief.html`, `wpr-review-archive.md`, `sheets-payload.json`, and starter `reviews/<date>-wpr.md` (if absent).
+- `build --wpr-dir wpr --out-dir wpr-output [--active-tab-first] [--overwrite-review]`: Generate the workbook, Markdown and HTML brief, archive, fresh numeric draft and Sheets payload. If the latest recorded week has no dated review, build also creates its draft in `wpr/reviews/`.
 - `plan-sync --payload wpr-output/sheets-payload.json [--previous previous-payload.json] --date YYYY-MM-DD --out sync-plan.json`: Generate bounded date-keyed writes and separate catalog updates without network access. Inspect live dates and row layout before applying.
 - `plan-doc-sync --wpr-dir wpr --document doc-snapshot.json --date YYYY-MM-DD --out doc-plan.json`: Locate the exact Heading 1 section or its insertion point using a fresh document snapshot and revision. This is a local planning command. See the [Doc procedure](connector-sync.md#doc-procedure) for write and readback checks.
 
-`build` also writes `wpr-review-draft.md` with fresh generated highlights. Reconcile the selected review against the draft before syncing. Add `- **Reviewed Summary:** <closed-week highlight and optional evidence link>` for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables. Preview text and coverage belong in the coverage cell. WPR-generated preview strings are ignored by CSV and XLSX import.
+`wpr-review-draft.md` contains fresh generated highlights. Its target labels describe numerical position relative to the target. Interpret metrics where lower is better in the authored review. Reconcile the selected review against the draft, then rebuild before syncing. Add `- **Reviewed Summary:** <closed-week highlight and optional evidence link>` for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables. Preview values appear in their metric cells. The coverage cell holds the preview window and Doc link. WPR-generated preview strings are ignored by CSV and XLSX import.
 
 Write relative evidence links relative to the dated review file. Exports rebase those links to their output folder, including the numeric draft, archive and workbook Notes, without changing the review source. Keep the output on the same drive for portable local links. Web/mail links, fragments and links written as code retain their original text. HTML renders relative links and HTTP(S)/mail links; `file://` URLs are not rendered as clickable links. For a native cloud report, use accessible web evidence URLs rather than assuming local files are available remotely.
 

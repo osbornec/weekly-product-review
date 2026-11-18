@@ -7,7 +7,7 @@ Use this guide during **Mode 1 (Setup & Metric Discovery)** to choose high-signa
 1. **Name the durable product or program, not one deliverable:** Never name the review after a single post, launch, or repo README heading. Ask what ongoing product or program is being run (e.g., *"Customer Education Programme"*, not the title of Week 1's tutorial).
 2. **Extract existing local baselines first:** Before interviewing the user for numbers, inspect existing project docs, trackers, changelogs, or CSVs to pre-fill what is already captured and pinpoint what lives externally.
 3. **Right-size the metric count:**
-   - **Most teams and solo builders:** Start lean with **7 to 10 metrics** so weekly capture takes under 5 minutes and the review stays sharp. Merge overlapping vanity counters (e.g., combine Reactions + Comments + Reposts into one engagement count) and skip derived ratio rows unless explicitly used for decisions.
+   - **Most teams and solo builders:** Start with **7 to 10 metrics**. Combine overlapping counters only when they use the same population and reporting window. Keep derived ratios you use in decisions.
    - **Business leaders (company-wide review):** Expand to **10 to 20 metrics** across growth, customer journey, delivery, and money/risk.
 
 ## Discovery Interview Flow

@@ -1,12 +1,12 @@
 # Weekly Product Review Methodology
 
-A practical operating cadence for product builders, product managers, and cross-functional teams using open Markdown records synced to Google Sheets and Google Docs.
+A weekly review for product builders and teams. Keep the records in Markdown and sync them to Google Sheets and Docs when needed.
 
 ## Why Run a Weekly Cadence
 
-- **Catch shifts while shipping context is fresh:** Monthly reporting hides onboarding, activation, or retention drops behind multi-week lag. Checking core metrics every Friday exposes regressions within seven days and builds shared team fluency around which product inputs move outcomes.
+- **Review changes while the work is fresh.** Check onboarding, activation and retention at the configured weekly cutoff. Compare what moved with what shipped and which users were affected.
 - **Keep one cross-functional scorecard:** Product, engineering, design, growth, and support examine the full lifecycle in one ledger instead of isolated team dashboards. Seeing upstream traffic, activation, support load, and churn side by side prevents silent handoff gaps.
-- **Trace inputs to outcomes:** Drilling into a specific flow, acquisition channel, or cohort reveals which product changes drive activation and retention.
+- **Investigate likely drivers.** Use a flow, channel or cohort split to see where a change is concentrated. Check the result against customer evidence before assigning a cause.
 
 ## Two Core Inputs
 
@@ -23,11 +23,11 @@ A practical operating cadence for product builders, product managers, and cross-
    - Do not wait for full analytics coverage before starting: insert an **Amber** placeholder (`ETA: <date>`) or an observable proxy (such as weekly repeat usage before formal NPS surveys exist).
    - Confirm the scorecard with peers so everyone agrees it models how users actually experience the product.
 2. **Build the Rolling Ledger:**
-   - Keep newest dates on the left (`Col C`) with metrics grouped top-to-bottom from headline outcomes down to funnel stages and risk.
-   - Color-code cells by origin: **Ice Blue** = manual entry, **Zinc** = calculated or automated feed, **Amber** = pending instrumentation or `N/A`.
+   - Keep newer calendar dates on the left. Find the reporting week by its date, since future weeks can precede it.
+   - Use ice blue for populated manual inputs, zinc for calculated or automated results, amber for explicit previews, pending and `N/A`, and a neutral fill for ordinary blanks.
    - Include rolling 4-week averages only for four consecutive, comparable closed observations. A missing week makes the comparison unavailable; zero remains valid. Keep previews and differently windowed historical baselines outside those calculations. Include QTD/YTD totals, exact-date weekly deltas and prior-year seasonal comparisons where appropriate.
 3. **Review with Metric Owners:**
-   - Bring product, engineering, design, growth, and support together (or run a focused 20-minute solo Friday audit). Never delegate interpretation to a single analyst reporting upward in isolation.
+   - Invite the people who can explain the inputs and act on what changed. For a solo review, check the source records and carry-over actions before deciding what to do.
 4. **Inspect Variance, Then Split:**
    - Skip line-by-line recitations and focus on anomalies (`>= 20%` WoW moves, target misses, or sudden support spikes):
      1. Was this move expected from recent launches, or unexplained?
@@ -48,4 +48,4 @@ A practical operating cadence for product builders, product managers, and cross-
 
 - **Quarterly planning (such as OKRs)** governs your 2 to 3 deliberate strategic bets for the quarter.
 - **Weekly Product Review** governs baseline operational health across uptime, onboarding, support load, revenue, and retention so core systems stay healthy between quarterly cycles.
-- Reviewing inputs and outputs every week makes subsequent quarterly Key Results far sharper and more realistic.
+- Use the weekly history as evidence when setting the next quarter's targets.

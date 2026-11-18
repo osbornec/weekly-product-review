@@ -28,7 +28,7 @@ In generated workbooks the legend merges A6:B6 inside the frozen columns and wra
 For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 1. **Quarterly Tabs:** `Q1 <YY>`, `Q2 <YY>`, `Q3 <YY>`, `Q4 <YY>` (newest week on the left: `Col C` = newest week of quarter, rightmost column = Week 1 of quarter).
 2. **Annual Tab:** `Full Year <YYYY>` (newest week on the left: `Col C` = Week 52/53, rightmost = Week 1).
-3. **Active Tab Selection:** Sets `activeTab` and `tabSelected="1"` to the newest active quarter tab (e.g., `Q4 26`). When syncing to Google Sheets (which ignores Excel's `activeTab` property and opens tab 0), pass `--active-tab-first` to `build` so the current quarter appears first.
+3. **Active Tab Selection:** Excel metadata selects the newest active quarter. When preparing the XLSX for initial Google Sheets import, pass `--active-tab-first` to put that quarter first in the workbook.
 
 ## Row Layout & Visual Hierarchy
 
@@ -45,7 +45,7 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 | **9+** | Metric rows & Analysis sub-rows | Quarter-scoped target | Values / Formulas | Ice Blue / Zinc / Amber fills, `#E2E8F0` borders, conditional `"N/A"` -> Amber |
 | **Bottom** | `Notes` | *(blank)* | Closed-week highlights | Cool Slate header + hairline cells |
 
-These are generated workbook positions. For an existing live Sheet, locate the coverage and highlights rows by purpose, metric rows by ID, and the week column by its actual date. Preserve the calendar key and date formula. Write preview figures as literal text and keep comparison and cumulative cells blank. At close, restore the date-only number format and replace preview text with verified numbers or blanks. Coverage and the Doc link share one cell. Use a separate Notes row for closed-week highlights.
+These are generated workbook positions. In a live Sheet, locate the coverage and highlights rows by purpose, metric rows by ID, and the week column by date. Preserve the calendar key and date formula. Write preview figures as literal text and keep comparison and cumulative cells blank. At close, restore the date-only number format, replace preview text with verified numbers or blanks, and apply result formats from the sync plan. Coverage and the Doc link share one cell. Use Notes for closed-week highlights.
 
 ---
 

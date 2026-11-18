@@ -1,6 +1,6 @@
 ---
 name: weekly-product-review
-description: An agent-native Weekly Product Review workflow for product builders and teams. Helps pick the 7 to 10 metrics that matter, pulls numbers from trackers, analytics, and web dashboards, pairs anomalies with real customer anecdotes, and keeps a formatted Google Sheet and review Doc updated in open files any agent can read. Use when setting up a weekly product review, tracking end-to-end user journey metrics, automating weekly data capture, running review meetings, or evolving product targets.
+description: Run a Weekly Product Review from Markdown in your project. Use when choosing product metrics, collecting weekly results and customer evidence, reviewing changes, tracking actions, or updating targets. Builds a local scorecard and review brief. Syncs existing Google Sheets and Docs when authorized connector access is available.
 license: MIT
 metadata:
   author: osbornec
@@ -9,13 +9,13 @@ metadata:
 
 # Weekly Product Review (WPR)
 
-An agent-native weekly review workflow for product builders and teams. Your agent helps pick the 7 to 10 metrics that matter, pulls numbers from your trackers, analytics, and web dashboards, pairs anomalies with real customer anecdotes, and keeps a formatted Google Sheet and review Doc updated in open files any agent can read.
+Use the weekly scorecard to decide what to investigate and change. Start with 7 to 10 metrics, check changes against source evidence, and assign each follow-up an owner and due date.
 
 Resolve this installed Skill's directory before running commands. Paths under `scripts/`, `references/`, `assets/` and `examples/` are relative to that directory. In a user project, invoke the script by its absolute installed path and pass the project's `--wpr-dir` and `--out-dir`. Copy templates or examples into the project before editing them; keep the installed Skill unchanged.
 
-## Core Architecture: Open Agent-Readable Files
+## Project files
 
-All review definitions, source mappings, weekly values, anecdotes, changelogs, and decisions live in plain Markdown inside a `wpr/` directory in your project. Because the memory is stored in open files rather than one tool's chat history, any teammate's agent (Codex, Claude Code, Grok, Cursor, or Antigravity) can read, audit, and run next week's review.
+Keep definitions, sources, weekly values and decisions in the project's `wpr/` folder. The next review uses those records as its starting point.
 
 - `wpr/wpr-config.md`: Durable product or program name, system map, metric catalog, quarter-scoped targets, data sources, metric/target changelog, and linked Sheet/Doc IDs.
 - `wpr/metrics-data.md`: Weekly metric values (newest week at the top).
@@ -23,10 +23,10 @@ All review definitions, source mappings, weekly values, anecdotes, changelogs, a
 - `wpr/reviews/YYYY-MM-DD-wpr.md`: Weekly review brief with metric highlights, anecdotes, root-cause notes, and two-track action items.
 
 Generated outputs in `wpr-output/`:
-- **Product Review Sheet** (`wpr-workbook.xlsx` synced to Google Sheets): Quarterly tabs (`Q1` to `Q4`) plus `Full Year`, calendar dates newest on the left, Ice Blue = manual, Zinc = calculated or automated, Amber = not yet collected. Future empty columns are neutral; locate the observed week by date, not column C.
-- **Review Brief & Archive** (`wpr-review-brief.md`, `wpr-review-brief.html`, and `wpr-review-archive.md` synced to a companion Google Doc): Latest weekly brief plus a newest-first running multi-week archive of highlights, carry-over actions, anecdotes, and decisions.
+- **Scorecard** (`wpr-workbook.xlsx`): Quarter and full-year tabs, with newer dates on the left. Ice blue marks populated manual inputs, zinc marks calculated or automated results, and amber marks explicit previews, pending sources and N/A. Ordinary blanks are neutral. Locate the week by date.
+- **Review Brief & Archive** (`wpr-review-brief.md`, `wpr-review-brief.html`, and `wpr-review-archive.md`): Latest weekly brief and a newest-first history. The existing Google Doc can mirror that history through scoped updates.
 - **Generated Draft** (`wpr-review-draft.md`): Fresh numeric highlights for reconciling an existing reviewed brief; final exports use the selected dated review.
-- **Sheets Sync Payload** (`sheets-payload.json`): Values, formulas, colors, date-column maps, `row_signature` and separate `catalog_signature`. `plan-sync` generates bounded proposed writes without contacting a service.
+- **Sheets Sync Payload** (`sheets-payload.json`): Values, formulas, formats, date-column maps, `row_signature` and `catalog_signature`. `plan-sync` generates bounded proposed writes locally.
 
 ## When to Activate Each Mode
 
@@ -90,8 +90,8 @@ Follow `references/sheet-template-spec.md` and `references/integrations.md`:
    - Use `--dry-run` to inspect proposed changes without writing. Both imports and `add-week` preserve surrounding Markdown; no-op imports leave the file unchanged. Changed files are replaced atomically.
 3. **Prompt only for remaining manual gaps** and check data hygiene (missing manual inputs, unit mismatches, >= 20% WoW swings, Amber ETAs due).
    - Keep an unfinished interval as `Period State: preview`. Show preview observations in the normal scorecard as display text. Keep coverage and the Doc link together and leave closed-week calculations blank for that interval. After cutoff, close with verified values and name missing sources. Leave stale or unavailable values blank. A zero at close requires verified coverage. WoW uses the adjacent weekly date and rolling averages need four consecutive, comparable closed numeric observations.
-4. **Update, rebuild, pre-draft commentary, and sync in place**:
-   - Add a preview week (`scripts/wpr_sync.py add-week`), reconcile verified values, close the period when ready, run `scripts/wpr_sync.py build --active-tab-first`, and run any host workspace validator. If a dated review exists, refresh its numeric highlights from `wpr-review-draft.md`; the builder preserves its reviewed content across final exports.
+4. **Update, rebuild, and sync in place**:
+   - Add the dated week if it is missing (`scripts/wpr_sync.py add-week`). Reconcile candidate values, close the interval after cutoff, run `scripts/wpr_sync.py build --active-tab-first`, and run any project validator. If a dated review exists, refresh its numeric highlights from `wpr-review-draft.md` and rebuild so the final exports reflect the reviewed Markdown.
    - **Pre-draft Sections 3 to 5 before syncing the Doc**: Populate real anecdotes from project records, analytics notes, support logs, or user input (never invent quotes or stats), draft concrete `Expected vs. Unexpected`, `Signal vs. Noise`, and `Splits Needed` discussion points from the numbers, and propose initial two-track actions (clearly marking unconfirmed hypotheses for review).
    - Add a reviewed summary with its evidence link for Sheet Notes. After the preflight, apply date-keyed quarter and Full Year writes, plus any catalog updates, and scoped revision-guarded Doc edits to destinations that passed. Style every affected table header. Read back the updated destinations and report each one's status. Repeat a failed destination for the same date without duplicating the review.
 
@@ -125,6 +125,6 @@ Read only what is needed for the current step:
 - `references/metric-discovery.md`: Product-machine discovery prompts, lean team vs. leadership metric presets, and source mapping.
 - `references/markdown-schema.md`: Exact syntax for `wpr-config.md` (including `Data Sources` and `Metric & Target Changelog`), `metrics-data.md`, and `reviews/`.
 - `references/sheet-template-spec.md`: Canonical Swiss Precision Grid design tokens, workbook layout (Ice Blue/Zinc/Amber), and cross-quarter/YoY formulas.
-- `references/integrations.md`: Integration choices, environment-specific CLIs and offline workflows.
+- `references/integrations.md`: Source collection, Google setup and local-only workflows.
 - `references/connector-sync.md`: Runnable Windows steps, date-scoped Sheets writes, catalog updates, guarded Docs edits and destination verification.
 - `references/collector-contract.md`: Capture metadata, comparable periods, preview/zero/failure states and retry rules.

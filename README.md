@@ -1,76 +1,57 @@
 # Weekly Product Review
 
-An agent-native Weekly Review workflow for product builders and teams. Your agent helps pick the 7 to 10 metrics that matter, pulls numbers from your trackers, analytics, and web dashboards, pairs anomalies with real customer anecdotes, and keeps a formatted Google Sheet and review Doc updated in open files any agent can read.
-
-Uses the open `agentskills.io` format for **Codex, Claude Code, Grok, Cursor, and Antigravity**, with a zero-dependency Python 3.8+ runtime. Connector capabilities depend on the host agent; installing the Skill does not create a scheduler or unattended sync executor.
+Run a weekly product review from Markdown files in your project. Use your agent to choose 7 to 10 metrics, bring numbers and customer feedback together, and record what the team will change. Next week's review starts from the same files and decisions.
 
 ```bash
 npx skills add osbornec/weekly-product-review
 ```
 
-![Weekly Product Review spreadsheet and review doc generated from open Markdown files](assets/wpr-preview.png)
+Open your project in an agent that supports the Agent Skills format and ask it to set up a Weekly Product Review. The runtime uses the Python 3.8+ standard library. Google sync requires an authorized connector with access to the target Sheet and Doc.
 
-## Why This Workflow
+## Try the synthetic example
 
-- **End-to-end agentic workflow, not a static template:** Your agent guides metric discovery, runs collectors across disparate tools, pre-drafts weekly commentary from real evidence, and tracks follow-up actions week over week.
-- **Portable across every teammate's agent:** Review memory lives in open, agent-readable files inside `wpr/` rather than one chat thread or proprietary BI tool, so anyone on your team can switch between Codex, Claude Code, Grok, Cursor, or Antigravity without losing context.
-- **Scoped Google Sheets and Docs updates:** Stakeholders get a formatted Sheet and running review Doc. Date-keyed connector writes preserve custom tabs, charts, comments and prior reviews; source setup and access are project-specific.
-- **Signal over noise, paired with customer anecdotes:** Separates real shifts from weekly jitter using 4-week rolling averages, flags 20%+ moves automatically, and puts raw customer and support feedback beside the numbers so you fix the real product bottleneck.
-
-## Try It Locally in 10 Seconds
-
-Generate the sample B2B SaaS workbook, review brief, and multi-week archive without connecting Google Workspace:
+From a checkout of this repository, run:
 
 ```bash
 python skills/weekly-product-review/scripts/wpr_sync.py build --wpr-dir examples/b2b-saas-wpr --out-dir wpr-output
 ```
 
-This creates `wpr-output/wpr-workbook.xlsx`, `wpr-output/wpr-review-draft.md`, `wpr-output/wpr-review-brief.md`, `wpr-output/wpr-review-brief.html`, `wpr-output/wpr-review-archive.md`, and `wpr-output/sheets-payload.json`.
+Open `wpr-output/wpr-workbook.xlsx` for the scorecard and `wpr-output/wpr-review-brief.html` for the review. New workspaces rise from 39 to 48 while activation falls from 43% to 38%. Two mobile onboarding replays give the team a place to investigate. All figures and events are invented.
 
-The [synthetic creator example](skills/weekly-product-review/examples/creator-wpr/README.md) adds a read-only collector, explicit capture coverage, preview periods, cumulative article counters and separate content items. For in-place sync, use the [Windows and connector guide](skills/weekly-product-review/references/connector-sync.md).
+| Output | Use |
+| --- | --- |
+| `wpr-workbook.xlsx` | Quarter and full-year scorecards |
+| `wpr-review-brief.md` and `wpr-review-brief.html` | Latest reviewed brief |
+| `wpr-review-archive.md` | Review history, newest first |
+| `wpr-review-draft.md` | Fresh figures to reconcile with an existing review |
+| `sheets-payload.json` | Inputs for a date-scoped Sheets update plan |
 
-## How It Works
+The build works without Google access. The HTML uses Google Fonts with a system font fallback. See the [creator example](skills/weekly-product-review/examples/creator-wpr/README.md) for a preview, a partial close and a read-only collector you can run locally.
 
-Ask your agent:
-- *"Set up a Weekly Product Review for this project"* (maps your customer journey, delivery, and money/risk into 7 to 10 team metrics or 10 to 20 leadership metrics, scaffolds local collectors, and creates your Sheet and Doc)
-- *"Refresh this week's review numbers"* (runs automated local, export, or browser collectors first, flags 20%+ WoW swings, updates your Sheet and Doc in place, and pre-drafts commentary from observed evidence)
-- *"Help me run this week's product review"* (compares moves against 4-week rolling averages, pairs metrics with customer anecdotes, and logs two-track actions to improve the sheet or change the product)
-- *"Split activation by mobile vs. desktop"* (evolves metrics, sets quarter-scoped targets, and logs definition changes in `Metric & Target Changelog`)
+## Run your review
 
-## Repository Contents
+| Ask your agent | What happens |
+| --- | --- |
+| “Set up a Weekly Product Review for this project.” | Choose metrics, map their sources and create the `wpr/` records. |
+| “Refresh this week's review.” | Collect from configured sources, identify missing inputs and rebuild the scorecard. An open week shows labelled previews. After cutoff, publish verified figures and name missing sources. |
+| “Help me run the review.” | Investigate changes with customer evidence, review prior actions and record owners and due dates for new decisions. |
+| “Split activation by mobile and desktop.” | Update the catalog and record the definition change so past comparisons stay interpretable. |
 
-| Path | Purpose |
-| :--- | :--- |
-| [skills/weekly-product-review/](skills/weekly-product-review/) | Self-contained installed Skill; development files and promotional images stay outside this folder |
-| [SKILL.md](skills/weekly-product-review/SKILL.md) | Agent instructions for Setup, Capture & Refresh, Running Reviews, and Evolution |
-| [scripts/wpr_sync.py](skills/weekly-product-review/scripts/wpr_sync.py) | Zero-dependency Python 3 engine (`validate`, `add-week`, `import-xlsx`, `import-csv`, `build`, `plan-sync`) |
-| [references/](skills/weekly-product-review/references/) | Runtime methodology, discovery, schema, workbook, collector and sync guidance |
-| [assets/templates/](skills/weekly-product-review/assets/templates/) | Starter Markdown templates for `wpr-config.md`, `metrics-data.md`, and `weekly-review.md` |
-| [examples/b2b-saas-wpr/](examples/b2b-saas-wpr/) | Sample B2B SaaS Weekly Product Review with 4 weeks of data, restatement log, and review brief |
-| [tests/](tests/) | Synthetic regression tests for Markdown preservation, imports, dry runs and interrupted writes |
+Keep one Markdown review per week in `wpr/reviews/`. The checked-in or local Markdown records are the source of truth. If you authorize Google sync, the agent checks access, updates the matching date on the existing Sheet and Doc, and verifies the result by reading it back. A blocked destination is reported and local outputs still build.
 
-`add-week`, `import-csv` and `import-xlsx` preserve surrounding Markdown and support `--dry-run` to inspect a diff before writing. No-op imports leave the source file byte-for-byte unchanged. Changed files are replaced atomically.
+- [Markdown schema and command reference](skills/weekly-product-review/references/markdown-schema.md)
+- [Google connector setup and sync procedure](skills/weekly-product-review/references/connector-sync.md)
+- [Integration and local-only options](skills/weekly-product-review/references/integrations.md)
 
-Run the regression tests with `python -B -m unittest discover -s tests -v`.
-See [version 1.1.0 verification](docs/release-verification.md) for the tested cases and live synthetic connector checks.
-See [recovery and compatibility verification](docs/recovery-and-compatibility.md) for failure injection, actual Python 3.8 execution, offline connector contracts and the one-shot Windows scheduler check.
+## Develop and verify
 
-## Installed Skill Boundary
-
-The installation command remains `npx skills add osbornec/weekly-product-review`. The CLI discovers the single nested Skill by its unchanged name, `weekly-product-review`.
-
-Only `skills/weekly-product-review/` is installed. The development tests, this README, promotional images, repository demonstration, verification records and private `.local/` directory remain outside that boundary. The runtime includes its own licence and the compact creator example used by the instructions.
-
-Commands shown inside the Skill assume its folder is the working directory. When reviewing another project, resolve the installed script's absolute path as described in the connector guide.
-
-To verify a local installation without changing global Skills, use an already installed Skills CLI:
+The installable folder is [`skills/weekly-product-review/`](skills/weekly-product-review/). It contains the [agent instructions](skills/weekly-product-review/SKILL.md), runtime, templates, references and the compact creator example. The repository keeps development tests and the B2B example at the top level.
 
 ```bash
-python tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/f08-install-verification.json
+python -B -m unittest discover -s tests
+python -B tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/install-verification.json
 ```
 
-This copies only Git-visible repository files into a temporary source, adds synthetic exclusion markers, installs into an isolated workspace with telemetry disabled, checks the installed manifest and links, and runs the installed workflows against temporary synthetic projects.
-
-## License
+Run the second command from a clean checkout with an existing Skills CLI. It checks installed files, links and workflows in a temporary workspace. See the [release verification](docs/release-verification.md) for results and test scope.
 
 MIT. See [LICENSE](LICENSE).

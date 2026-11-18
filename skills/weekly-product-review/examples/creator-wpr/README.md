@@ -10,13 +10,14 @@ All names, URLs, figures and events in this example are invented. It demonstrate
 
 ## Run the examples
 
-Run these commands from the installed Skill folder. In the development repository, first change to `skills/weekly-product-review/`. For work in another project, copy this example into that project and use the installed script's absolute path; keep the installed example unchanged.
+Copy this example to `creator-example/` in your project. Run from the project folder and set `$skillRoot` to the installed Skill folder or the development checkout's `skills/weekly-product-review/` folder.
 
-```bash
-python examples/creator-wpr/collect_wpr.py --as-of 2027-02-12T17:15:00+01:00
-python examples/creator-wpr/collect_wpr.py --input examples/creator-wpr/capture.partial-close.example.json --as-of 2027-02-05T17:10:00+01:00
-python scripts/wpr_sync.py validate --wpr-dir examples/creator-wpr
-python scripts/wpr_sync.py build --wpr-dir examples/creator-wpr --out-dir wpr-output
+```powershell
+$skillRoot = 'C:/path/to/weekly-product-review'
+python creator-example/collect_wpr.py --as-of 2027-02-12T17:15:00+01:00
+python creator-example/collect_wpr.py --input creator-example/capture.partial-close.example.json --as-of 2027-02-05T17:10:00+01:00
+python "$skillRoot/scripts/wpr_sync.py" validate --wpr-dir creator-example
+python "$skillRoot/scripts/wpr_sync.py" build --wpr-dir creator-example --out-dir wpr-output
 ```
 
 - The collector reads `capture.example.json` and prints candidate values. It never edits `metrics-data.md`, calls a service or publishes anything.
@@ -25,4 +26,4 @@ python scripts/wpr_sync.py build --wpr-dir examples/creator-wpr --out-dir wpr-ou
 - Preview, stale and inaccessible captures return blank candidate values while retaining observed counts for diagnosis. Verified zero is a separate state. Existing closed history remains unchanged because collection is read-only.
 - Preserve window and scope when dashboard labels look alike. The partial-close fixture keeps both reads of a rolling impressions total beside a separate since-publication count. It also records account and post-attributed profile viewers separately. These records stay outside the weekly candidate values.
 - `metrics-data.md` keeps a pre-publication baseline outside the weekly series. It must not be used to fill missing weekly periods.
-- Follow the [collector contract](../../references/collector-contract.md) for cutoff changes, timezone offsets, failed captures and scheduled retries. Scheduled execution needs project-specific setup; installing this skill does not create an automation.
+- Follow the [collector contract](../../references/collector-contract.md) for cutoff changes, timezone offsets, failed captures and retries.
