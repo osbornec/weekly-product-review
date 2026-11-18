@@ -160,6 +160,6 @@ Source of truth for the companion Google Doc (and weekly `Notes` summary). When 
 
 Write relative evidence links relative to the dated review file. Exports rebase those links to their output folder, including the numeric draft, archive and workbook Notes, without changing the review source. Keep the output on the same drive for portable local links. Web/mail links, fragments and links written as code retain their original text. HTML renders relative links and HTTP(S)/mail links; `file://` URLs are not rendered as clickable links. For a native cloud report, use accessible web evidence URLs rather than assuming local files are available remotely.
 
-HTML exports have inline styles and use locally available Inter or system fonts; they do not automatically load remote fonts or scripts. Evidence links open only when followed.
+HTML exports have inline styles and load Inter from Google Fonts, with locally available Inter/system fonts as fallback. Evidence links open when followed.
 
 Generated workbooks persist numeric date caches beside formulas and include a hidden `Metric ID` column. XLSX imports use those stable identities, accept valid zero, validate all candidate values before saving, and report unmatched rows and uncomputed headers with counts and reasons. Display-label changes do not change metric identity.

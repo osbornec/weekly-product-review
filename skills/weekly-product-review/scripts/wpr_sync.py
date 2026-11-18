@@ -1539,6 +1539,8 @@ def render_brief_html(title: str, md_text: str) -> str:
     html_parts = [
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>",
         f"<title>{html.escape(title)}</title>",
+        "<link rel='preconnect' href='https://fonts.googleapis.com'><link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>",
+        "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap' rel='stylesheet'>",
         "<style>"
         "body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Arial,sans-serif;background:#F8FAFC;color:#09090B;max-width:960px;margin:2.5rem auto;padding:0 1.5rem;line-height:1.55}"
         "h1{font-size:1.85rem;font-weight:700;color:#09090B;letter-spacing:-0.02em;margin-bottom:.35rem}"

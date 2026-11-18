@@ -1,6 +1,6 @@
 # Independent local beta verification
 
-Checked on 18 November 2026 using a new, invented subscription-helpdesk project. The evaluating agents received the installed Skill, raw local evidence and ordinary review requests. They did not receive the development history, regression tests, expected answers or earlier beta findings. Scoring criteria were kept outside their workspaces.
+Checked on 18 November 2026 using a new, invented subscription-helpdesk project. The evaluating agents received the installed Skill, raw local evidence and ordinary review requests. They did not receive the development history, regression tests, expected answers or earlier beta findings. Scoring criteria were kept outside their workspaces. The later user-requested font reversal restores Google Fonts; the no-remote-resource observations below describe the historical beta version, not the current renderer.
 
 ## Original installed version
 
@@ -29,7 +29,7 @@ The reporter then rebuilt with the updated local package without editing evidenc
 | ID | Priority | Finding | Change |
 | --- | --- | --- | --- |
 | F09 | P1 | Source-relative evidence links broke when the review was copied to a different output directory. An absolute `file://` workaround was also ineffective in HTML because that scheme is intentionally not rendered as a link. | Rebase relative links for final Markdown/HTML, archive, generated draft and workbook Notes; preserve the source, web links, query/fragment and code text. Document portable links and supported HTML schemes. |
-| F10 | P2 | Opening generated HTML could request three external font resources. | Remove automatic remote font requests; retain locally available Inter/system fallback and inline styles. |
+| F10 | Withdrawn | Opening generated HTML could request three external font resources; this was interpreted too broadly as a local-only restriction. | User requested reversal. Inter now loads from Google Fonts again, with local/system fallback. |
 | F11 | P1 | Coverage wording caused a source outage to hide independent verified metrics after the reporting cutoff. | Separate the closed reporting interval from per-metric availability. Verified values remain visible; unavailable/stale values stay blank and excluded. Keep unfinished intervals as preview. |
 | F12 | P2 | The agent promoted an unrelated open question into carry-over actions and appended prose to an exact-match status. | Restrict action carry-over to prior Decisions; retain the exact Status value and put commentary in Update or adjacent prose. Keep general questions in Discussion. |
 | F13 | P1 | The second independent agent found blank automated/calculated metrics labelled `On track` in the generated draft. | Label missing automated/calculated values `Unavailable`; preserve `Pending input` for missing manual inputs. |
@@ -37,7 +37,7 @@ The reporter then rebuilt with the updated local package without editing evidenc
 ## Development checks
 
 - All 83 standard-library tests pass on Windows x64 CPython 3.8.10 and 3.14.5.
-- New regression checks cover portable links across output directories, source preservation, code/web/fragment links, generated carry-over links, no automatic remote HTML resources, mixed verified-zero/unavailable metrics, and truthful missing-value signals.
+- New regression checks cover portable links across output directories, source preservation, code/web/fragment links, generated carry-over links, Google Fonts loading, mixed verified-zero/unavailable metrics, and truthful missing-value signals.
 - The isolated Skills CLI installation keeps development tests and beta records outside the 18-file runtime package. Installed workflow checks use synthetic projects and do not write to a service.
 - HTML resource and link targets were checked structurally; no new rendered browser or Excel visual check was performed.
 

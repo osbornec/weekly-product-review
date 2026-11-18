@@ -58,7 +58,7 @@ class ExportPathsTests(unittest.TestCase):
         self.assertIn("](../../evidence.md)", (self.output / "wpr-review-draft.md").read_text(encoding="utf-8"))
         self.assertIn("](../evidence.md)", (reviews / "2027-01-08-wpr.md").read_text(encoding="utf-8"))
 
-    def test_html_has_no_automatic_remote_resource_requests(self):
+    def test_html_loads_inter_from_google_fonts(self):
         class Resources(HTMLParser):
             def __init__(self):
                 super().__init__()
@@ -71,8 +71,12 @@ class ExportPathsTests(unittest.TestCase):
                     self.remote.append(address)
 
         parser = Resources()
-        parser.feed(wpr.render_brief_html("Offline review", "[Optional evidence](https://example.test/proof)"))
-        self.assertEqual(parser.remote, [])
+        parser.feed(wpr.render_brief_html("Review", "[Optional evidence](https://example.test/proof)"))
+        self.assertEqual(parser.remote, [
+            "https://fonts.googleapis.com",
+            "https://fonts.gstatic.com",
+            "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap",
+        ])
 
 
 if __name__ == "__main__":
