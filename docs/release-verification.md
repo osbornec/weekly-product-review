@@ -26,4 +26,19 @@ The existing Google Drive connector was used against new reports containing inve
 - Revision-guarded Docs edits preserved the prior review, the single current-date heading, two native tables and a hyperlink. Both table headers were styled.
 - Every populated Sheet tab, the custom chart and the Doc were inspected in the browser. The wrapped legend remains visible inside frozen columns; empty future periods are neutral.
 
-These checks establish the tested connector path, not unattended scheduling reliability or compatibility with every agent's connector. Follow [connector-sync.md](connector-sync.md) for setup, readback and partial-failure handling.
+These checks establish the tested connector path, not unattended scheduling reliability or compatibility with every agent's connector. Follow [connector-sync.md](../skills/weekly-product-review/references/connector-sync.md) for setup, readback and partial-failure handling.
+
+## F08: installed Skill packaging
+
+The installable boundary is `skills/weekly-product-review/`. Development tests, this verification record, repository documentation, promotional images and the B2B demonstration remain outside it. The runtime has its own MIT licence and a compact creator example.
+
+Run `python tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/f08-install-verification.json` from the development repository. The check uses an existing CLI, disables telemetry, copies Git-visible files into a temporary source and installs into a temporary project. Synthetic exclusion markers exercise the boundary without reading private files.
+
+- Skills CLI 1.9.0 discovered and installed one Skill with the unchanged name `weekly-product-review`.
+- The installed manifest contains exactly 18 runtime files. Byte hashes match the source; no tests, promotional images, development reports or local markers are installed.
+- All relative package links and the entrypoint's resource paths resolve inside the installed Skill.
+- From a separate project directory, the installed collector returns eight expected synthetic candidates; creator validation/build, template scaffolding, CSV import, manual validation/build, XLSX round trip, date-keyed sync planning, add-week dry run and add-week pass.
+- Each build produces the six expected outputs. Dry runs preserve source bytes, and the installed files remain unchanged after the workflows.
+- The full development regression suite remains outside the installed folder and passes all 66 tests.
+
+The public installation command remains `npx skills add osbornec/weekly-product-review`. This check verifies local discovery and installation of the new structure; the remote command continues to use the existing published version until a release is explicitly authorised. No global Skill installation is changed.

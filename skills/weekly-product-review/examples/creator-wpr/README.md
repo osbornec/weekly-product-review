@@ -2,6 +2,8 @@
 
 All names, URLs, figures and events in this example are invented. It demonstrates a publication programme with account-wide measurements, separate content items, a cumulative article counter and dated activity events.
 
+Run these commands from the installed Skill folder. In the development repository, first change to `skills/weekly-product-review/`. For work in another project, copy this example into that project and use the installed script's absolute path; keep the installed example unchanged.
+
 ```bash
 python examples/creator-wpr/collect_wpr.py --as-of 2027-02-12T17:15:00+01:00
 python scripts/wpr_sync.py validate --wpr-dir examples/creator-wpr

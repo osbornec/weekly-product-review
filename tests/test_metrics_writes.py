@@ -14,7 +14,7 @@ from unittest import mock
 
 
 SPEC = importlib.util.spec_from_file_location(
-    "wpr_sync_under_test", Path(__file__).resolve().parents[1] / "scripts" / "wpr_sync.py"
+    "wpr_sync_under_test", Path(__file__).resolve().parents[1] / "skills" / "weekly-product-review" / "scripts" / "wpr_sync.py"
 )
 wpr = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = wpr

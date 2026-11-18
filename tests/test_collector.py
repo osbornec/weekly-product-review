@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1] / "examples" / "creator-wpr"
+ROOT = Path(__file__).resolve().parents[1] / "skills" / "weekly-product-review" / "examples" / "creator-wpr"
 SPEC = importlib.util.spec_from_file_location("synthetic_collector", ROOT / "collect_wpr.py")
 collector = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(collector)

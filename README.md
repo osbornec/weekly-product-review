@@ -22,12 +22,12 @@ npx skills add osbornec/weekly-product-review
 Generate the sample B2B SaaS workbook, review brief, and multi-week archive without connecting Google Workspace:
 
 ```bash
-python scripts/wpr_sync.py build --wpr-dir examples/b2b-saas-wpr --out-dir wpr-output
+python skills/weekly-product-review/scripts/wpr_sync.py build --wpr-dir examples/b2b-saas-wpr --out-dir wpr-output
 ```
 
 This creates `wpr-output/wpr-workbook.xlsx`, `wpr-output/wpr-review-draft.md`, `wpr-output/wpr-review-brief.md`, `wpr-output/wpr-review-brief.html`, `wpr-output/wpr-review-archive.md`, and `wpr-output/sheets-payload.json`.
 
-The [synthetic creator example](examples/creator-wpr/README.md) adds a read-only collector, explicit capture coverage, preview periods, cumulative article counters and separate content items. For in-place sync, use the [Windows and connector guide](references/connector-sync.md).
+The [synthetic creator example](skills/weekly-product-review/examples/creator-wpr/README.md) adds a read-only collector, explicit capture coverage, preview periods, cumulative article counters and separate content items. For in-place sync, use the [Windows and connector guide](skills/weekly-product-review/references/connector-sync.md).
 
 ## How It Works
 
@@ -41,17 +41,34 @@ Ask your agent:
 
 | Path | Purpose |
 | :--- | :--- |
-| [SKILL.md](SKILL.md) | Agent instructions for Setup, Capture & Refresh, Running Reviews, and Evolution |
-| [scripts/wpr_sync.py](scripts/wpr_sync.py) | Zero-dependency Python 3 engine (`validate`, `add-week`, `import-xlsx`, `import-csv`, `build`) |
-| [references/](references/) | Methodology, metric discovery menus, Markdown schema, sheet template spec, and sync guide |
-| [assets/templates/](assets/templates/) | Starter Markdown templates for `wpr-config.md`, `metrics-data.md`, and `weekly-review.md` |
+| [skills/weekly-product-review/](skills/weekly-product-review/) | Self-contained installed Skill; development files and promotional images stay outside this folder |
+| [SKILL.md](skills/weekly-product-review/SKILL.md) | Agent instructions for Setup, Capture & Refresh, Running Reviews, and Evolution |
+| [scripts/wpr_sync.py](skills/weekly-product-review/scripts/wpr_sync.py) | Zero-dependency Python 3 engine (`validate`, `add-week`, `import-xlsx`, `import-csv`, `build`, `plan-sync`) |
+| [references/](skills/weekly-product-review/references/) | Runtime methodology, discovery, schema, workbook, collector and sync guidance |
+| [assets/templates/](skills/weekly-product-review/assets/templates/) | Starter Markdown templates for `wpr-config.md`, `metrics-data.md`, and `weekly-review.md` |
 | [examples/b2b-saas-wpr/](examples/b2b-saas-wpr/) | Sample B2B SaaS Weekly Product Review with 4 weeks of data, restatement log, and review brief |
 | [tests/](tests/) | Synthetic regression tests for Markdown preservation, imports, dry runs and interrupted writes |
 
 `add-week`, `import-csv` and `import-xlsx` preserve surrounding Markdown and support `--dry-run` to inspect a diff before writing. No-op imports leave the source file byte-for-byte unchanged. Changed files are replaced atomically.
 
 Run the regression tests with `python -B -m unittest discover -s tests -v`.
-See [version 1.1.0 verification](references/release-verification.md) for the tested cases and live synthetic connector checks.
+See [version 1.1.0 verification](docs/release-verification.md) for the tested cases and live synthetic connector checks.
+
+## Installed Skill Boundary
+
+The installation command remains `npx skills add osbornec/weekly-product-review`. The CLI discovers the single nested Skill by its unchanged name, `weekly-product-review`.
+
+Only `skills/weekly-product-review/` is installed. The development tests, this README, promotional images, repository demonstration, verification records and private `.local/` directory remain outside that boundary. The runtime includes its own licence and the compact creator example used by the instructions.
+
+Commands shown inside the Skill assume its folder is the working directory. When reviewing another project, resolve the installed script's absolute path as described in the connector guide.
+
+To verify a local installation without changing global Skills, use an already installed Skills CLI:
+
+```bash
+python tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/f08-install-verification.json
+```
+
+This copies only Git-visible repository files into a temporary source, adds synthetic exclusion markers, installs into an isolated workspace with telemetry disabled, checks the installed manifest and links, and runs the installed workflows against temporary synthetic projects.
 
 ## License
 

@@ -11,6 +11,8 @@ metadata:
 
 An agent-native weekly review workflow for product builders and teams. Your agent helps pick the 7 to 10 metrics that matter, pulls numbers from your trackers, analytics, and web dashboards, pairs anomalies with real customer anecdotes, and keeps a formatted Google Sheet and review Doc updated in open files any agent can read.
 
+Resolve this installed Skill's directory before running commands. Paths under `scripts/`, `references/`, `assets/` and `examples/` are relative to that directory. In a user project, invoke the script by its absolute installed path and pass the project's `--wpr-dir` and `--out-dir`. Copy templates or examples into the project before editing them; keep the installed Skill unchanged.
+
 ## Core Architecture: Open Agent-Readable Files
 
 All review definitions, source mappings, weekly values, anecdotes, changelogs, and decisions live in plain Markdown inside a `wpr/` directory in your project. Because the memory is stored in open files rather than one tool's chat history, any teammate's agent (Codex, Claude Code, Grok, Cursor, or Antigravity) can read, audit, and run next week's review.
