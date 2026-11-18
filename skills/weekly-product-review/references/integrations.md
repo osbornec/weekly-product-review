@@ -22,7 +22,7 @@ Most real projects split metrics across local files, APIs, databases, and web da
 
 ## Part 2: Syncing the Sheet & Companion Doc
 
-For Windows, connector-first operation, date-keyed writes, catalog changes, scoped Doc updates and destination verification, follow [the runnable connector guide](connector-sync.md). Generate a local plan with `plan-sync`; apply it only after reading actual destination dates and cells. Custom charts, comments and reviewed content require scoped updates.
+Start authorized Google sync with the [Google Drive plugin preflight](connector-sync.md#google-drive-plugin-preflight). If a destination is blocked, report it and complete the local build. The [connector guide](connector-sync.md) covers date-keyed writes, catalog changes, scoped Doc updates and destination verification. Generate a local plan with `plan-sync` and apply it after reading actual destination dates and cells. Custom charts, comments and reviewed content require scoped updates.
 
 ### CLI route: `gdrive` and `gdocs` (Environment-Specific)
 

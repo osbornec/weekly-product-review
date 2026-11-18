@@ -17,6 +17,16 @@ python $wprScript plan-sync --payload wpr-output/sheets-payload.json --previous 
 
 Omit `--previous` for the first sync. Save the successfully verified Sheet payload as `previous-payload.json` only after Sheet readback, not merely after submitting a write. This checkpoint belongs to the Sheet; a failed Doc update must not discard it. The plan command writes a local JSON plan and makes no network calls.
 
+## Google Drive plugin preflight
+
+Run this check in the agent session before any authorized Google sync. The Python commands build local outputs independently of the plugin. If the run is local-only, skip this check and build from local inputs.
+
+1. Check that the Google Drive plugin is available in the current session. For each requested destination, confirm it offers the required native read and update tools. Use the project's configured Sheet and Doc IDs or URLs. A missing target is unconfigured. First-time creation requires an explicit setup request and the appropriate create tool.
+2. Make a read-only call through the plugin to each exact target. Read Sheet metadata and the relevant date headers or read the Doc structure and revision. Use those results in the procedures below. For edit access in Codex, request `capabilities(canEdit)` through the plugin's `get_file_metadata` tool for each target. A successful content read confirms read access only. If edit access cannot be established, report it as unconfirmed and keep that destination pending.
+3. If the plugin is missing, disconnected, missing a required tool, or returns an access error, leave the affected destination pending and report the specific blocker. Complete validation and the local build using available inputs. Continue an authorized sync for any other destination that passed. Keep configured IDs intact. A substitute connector or replacement file requires a separate user choice.
+
+Report the local output folder and separate results for the Sheet and Doc. For example, “Local build complete. Sheet sync blocked because edit access was denied. Doc updated and verified.” If a live Sheet export was unavailable, also report that any unimported manual edits are absent from the local build.
+
 ## Sheet procedure
 
 1. Resolve the existing native spreadsheet ID. Read metadata for exact titles, sheet IDs, grid bounds and chart IDs. Do not use or replace a private reference report for testing.
