@@ -36,6 +36,7 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import quoteattr as xml_quoteattr
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 
@@ -63,6 +64,17 @@ FILL_AMBER_PENDING = 4   # #FFEDD5 (not collected / N/A)
 FILL_SLATE_SECTION = 5   # #F1F5F9 (section divider & calendar strip)
 FILL_LEGEND_BG = 6       # #F8FAFC (subtle legend row)
 FILL_MIDNIGHT_HEADER = 7 # #09090B (Row 5 header bar)
+
+# Grid format code -> (Excel format ID, Google Sheets type, display pattern).
+GRID_NUMBER_FORMATS = {
+    1: (3, "NUMBER", "#,##0"),
+    2: (167, "NUMBER", "#,##0.0"),
+    3: (165, "CURRENCY", "$#,##0"),
+    4: (166, "PERCENT", "0.0%"),
+    5: (164, "DATE", "yyyy-mm-dd"),
+    6: (168, "DATE", "mmm dd"),
+    7: (169, "DATE", 'mmm dd "Preview"'),
+}
 
 EXCEL_EPOCH = dt.date(1899, 12, 30)
 XLSX_NS = {
@@ -1204,7 +1216,7 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
             shared_strings.append(s)
         return ss_index[s]
 
-    fmt_code_map = {0: 0, 1: 3, 2: 167, 3: 165, 4: 166, 5: 164, 6: 168, 7: 169}
+    fmt_code_map = {code: fmt_id for code, (fmt_id, _, _) in GRID_NUMBER_FORMATS.items()}
     # (fill_id, font_id, numFmtId, border_id, align_key)
     xf_list: List[Tuple[int, int, int, int, str]] = [(0, 0, 0, 0, "")]
     xf_map: Dict[Tuple[int, int, int, int, str], int] = {(0, 0, 0, 0, ""): 0}
@@ -1304,17 +1316,16 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
             f'{align_xml}</xf>'
         )
     xfs_xml = "".join(xfs_parts)
+    custom_formats = sorted((fmt_id, pattern) for fmt_id, _, pattern in GRID_NUMBER_FORMATS.values()
+                            if fmt_id >= 164)
+    number_formats_xml = "".join(
+        f'<numFmt numFmtId="{fmt_id}" formatCode={xml_quoteattr(pattern)}/>'
+        for fmt_id, pattern in custom_formats
+    )
     styles_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<numFmts count="6">'
-        '<numFmt numFmtId="164" formatCode="yyyy-mm-dd"/>'
-        '<numFmt numFmtId="165" formatCode="$#,##0"/>'
-        '<numFmt numFmtId="166" formatCode="0.0%"/>'
-        '<numFmt numFmtId="167" formatCode="#,##0.0"/>'
-        '<numFmt numFmtId="168" formatCode="mmm dd"/>'
-        '<numFmt numFmtId="169" formatCode="mmm dd &quot;Preview&quot;"/>'
-        '</numFmts>'
+        f'<numFmts count="{len(custom_formats)}">{number_formats_xml}</numFmts>'
         '<fonts count="6">'
         '<font><sz val="10"/><color rgb="FF09090B"/><name val="Inter"/></font>'
         '<font><b/><sz val="10"/><color rgb="FF0F172A"/><name val="Inter"/></font>'
@@ -1800,15 +1811,22 @@ def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date]) -> d
     for index, wd in enumerate(week_dates_desc, start=2):
         date, col = wd.isoformat(), col_letter(index + 1)
         week_cols[date] = col
-        preview = grid[4][index]["fmt"] == 7
+        date_pattern = GRID_NUMBER_FORMATS[grid[4][index]["fmt"]][2]
+        number_formats = {}
+        for r, row in enumerate(grid[7:], start=8):
+            cell = row[index]
+            if cell["fmt"] in GRID_NUMBER_FORMATS:
+                _, sheets_type, pattern = GRID_NUMBER_FORMATS[cell["fmt"]]
+                number_formats[f"{col}{r}"] = {"type": sheets_type, "pattern": pattern}
         week_display[date] = {
-            "date_header": {"cell": f"{col}5", "number_format": 'mmm dd "Preview"' if preview else "mmm dd"},
+            "date_header": {"cell": f"{col}5", "number_format": date_pattern},
             "coverage_cell": f"{col}7",
             "notes_cell": f"{col}{len(grid)}",
             "text_cells": [f"{col}{r}" for r, row in enumerate(grid, 1) if row[index].get("display_text")],
             "number_cells": [f"{col}{r}" for r, row in enumerate(grid, 1)
                              if row[index]["f"] is None and isinstance(row[index]["v"], (int, float))
                              and row[index]["fmt"] != 5],
+            "number_formats": number_formats,
             "fills": {f"{col}{r}": fill_hex[row[index]["fill"]] for r, row in enumerate(grid, 1)
                       if row[index]["fill"] in fill_hex},
         }

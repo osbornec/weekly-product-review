@@ -6,9 +6,9 @@ from pathlib import Path
 from test_metrics_writes import wpr
 
 
-def metric(metric_id="units", formula="", analyses=None):
+def metric(metric_id="units", formula="", analyses=None, fmt="float"):
     return wpr.MetricDef("Operations", metric_id, metric_id.title(), "calculated" if formula else "manual",
-                         "float", "", analyses or ["wow", "rolling_4w"], formula, "Team", "Synthetic")
+                         fmt, "", ["wow", "rolling_4w"] if analyses is None else analyses, formula, "Team", "Synthetic")
 
 
 def entry(date, value, state="closed", group="", status="manual"):
@@ -93,8 +93,9 @@ class ReportingTests(unittest.TestCase):
 
     def test_preview_scorecard_displays_text_then_closes_to_verified_numbers(self):
         cfg = wpr.WPRConfig(doc_url="https://example.test/reviews", metrics=[
-            metric(analyses=["wow", "rolling_4w", "qtd_sum"]), metric("zero"), metric("missing"), metric("blank"),
-            metric("running", "cumsum:units"),
+            metric(analyses=["wow", "rolling_4w", "qtd_sum"]),
+            metric("zero", analyses=[], fmt="int"), metric("missing", analyses=[], fmt="currency"),
+            metric("blank", analyses=[], fmt="percent"), metric("running", "cumsum:units", analyses=[]),
         ])
         row = entry("2027-02-12", 40, state="preview")
         row.coverage = "6–11 February 2027"
@@ -129,6 +130,7 @@ class ReportingTests(unittest.TestCase):
         plan = wpr.plan_sync(payload(preview), payload(preview), date)["tabs"][0]
         self.assertIn(f"{column}{units + 1}", plan["text_cells"])
         self.assertIn("Preview", plan["date_header"]["number_format"])
+        self.assertEqual(plan["number_formats"], {})
         row.period_state = "closed"
         row.cells["zero"].status = "verified-zero"
         closed, _ = build()
@@ -144,6 +146,16 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(close_plan["text_cells"], [])
         self.assertEqual(close_plan["date_header"]["number_format"], "mmm dd")
         self.assertIn(f"{column}{zero + 1}", close_plan["number_cells"])
+        self.assertEqual(close_plan["number_formats"], {
+            f"{column}{units + 1}": {"type": "NUMBER", "pattern": "#,##0.0"},
+            f"{column}{units + 2}": {"type": "PERCENT", "pattern": "0.0%"},
+            f"{column}{units + 3}": {"type": "NUMBER", "pattern": "#,##0.0"},
+            f"{column}{units + 4}": {"type": "NUMBER", "pattern": "#,##0.0"},
+            f"{column}{rows['running']}": {"type": "NUMBER", "pattern": "#,##0.0"},
+            f"{column}{zero + 1}": {"type": "NUMBER", "pattern": "#,##0"},
+            f"{column}{missing + 1}": {"type": "CURRENCY", "pattern": "$#,##0"},
+            f"{column}{blank + 1}": {"type": "PERCENT", "pattern": "0.0%"},
+        })
         self.assertIn("Synthetic service export", str(close_plan["writes"]))
 
     def test_generated_review_preserves_heading_on_close_and_names_missing_sources(self):
