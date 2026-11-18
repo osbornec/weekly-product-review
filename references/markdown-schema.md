@@ -7,6 +7,7 @@ All Weekly Product Review state lives in `wpr/` as plain, agent-readable Markdow
 - `wpr/wpr-config.md`: Metadata, style options, product system map, metric catalog, data source registry, and metric/target changelog.
 - `wpr/metrics-data.md`: Weekly metric values (newest week at top).
 - `wpr/collect_wpr.py`: Optional project-specific collector script for local/API/export sources.
+- Collector outputs should follow [collector-contract.md](collector-contract.md); see the fully synthetic [creator example](../examples/creator-wpr/README.md).
 - `wpr/reviews/YYYY-MM-DD-wpr.md`: Weekly review brief (highlights, carry-over actions, anecdotes, discussion, decisions).
 
 ---
@@ -90,7 +91,7 @@ All Weekly Product Review state lives in `wpr/` as plain, agent-readable Markdow
     - `cumsum:<metric_id>` -> cumulative sum carrying across quarters and years.
     - `ratio:<num_id>/<den_id>` -> ratio of two metrics.
     - `diff:<a_id>-<b_id>` -> difference of two metrics.
-    - Raw spreadsheet formula using `{col}` (e.g., `={col}9/{col}15`; evaluated inside Excel/Google Sheets rather than Python brief tables).
+    - Raw spreadsheet formula using `{col}`: numeric constants, metric-row references, parentheses and `+`, `-`, `*`, `/` also evaluate in Python briefs (e.g., `={col}9/{col}15`). Other spreadsheet functions remain workbook-only and show unavailable values in generated briefs; arbitrary code is never executed.
 - **Data Sources & Changelog tables**:
   - `## Data Sources`: `Metric IDs`, `Source System`, `Location / URL / Query`, `Date-Range Filter`, `Method` (`local-script`, `api/mcp`, `browser`, `csv-export`, `manual`), `Notes`.
   - `## Metric & Target Changelog`: `Effective Date`, `Metric ID`, `Change Type`, `Old -> New`, `Reason`.
@@ -100,6 +101,22 @@ All Weekly Product Review state lives in `wpr/` as plain, agent-readable Markdow
 ## 2. `wpr/metrics-data.md`
 
 Weekly metric entries stored **newest week at the top**. `scripts/wpr_sync.py` supports multiple calendar years in the same file.
+
+Optional metadata directly below a week heading:
+
+```markdown
+- Period State: preview
+- Comparison Group: weekly-cutoff-v1
+```
+
+- New weeks start as `preview`. After checking the reporting cutoff, complete source coverage and values, set `Period State: closed` explicitly. Numeric preview values are excluded from exported calculations.
+- Legacy weeks without `Period State` remain closed for compatibility. Mark any genuinely provisional rows explicitly.
+- `Comparison Group` identifies comparable definitions/windows. A change breaks automatic comparisons across that boundary. WoW uses exactly seven days earlier; rolling averages require four consecutive closed periods and four numeric values. Zero counts as numeric; a zero denominator has no percentage change.
+- Additional cell statuses are `preview`, `stale`, `unavailable` and `verified-zero`; the last requires numeric zero. Use blanks for unavailable values rather than text in numeric fields.
+
+You can keep preview observations, source notes and links around the weekly tables. `add-week`, `import-csv` and `import-xlsx` preserve that content, existing cell notes, uncatalogued rows and extra table columns. Imports patch changed cells; a no-op leaves the file byte-for-byte unchanged, including its UTF-8 BOM and line endings. Changed files use a flushed temporary file in the same directory and atomic replacement. Duplicate weeks or duplicate metric rows are rejected before writing to avoid ambiguous updates.
+
+Pass `--dry-run` to any of these three commands to print a proposed diff without writing. Preview output can contain your metric values and private notes; review it locally.
 
 ```markdown
 # Weekly Metrics Data
@@ -133,7 +150,12 @@ Source of truth for the companion Google Doc (and weekly `Notes` summary). When 
 ## 4. `scripts/wpr_sync.py` CLI Commands
 
 - `validate --wpr-dir wpr`: Check catalog IDs, types, formats, formulas, analyses, and missing manual entries.
-- `add-week --wpr-dir wpr [--date YYYY-MM-DD] [--force]`: Prepend a blank week block to `metrics-data.md`.
-- `import-xlsx --wpr-dir wpr --xlsx path.xlsx`: Pull manual metric edits from all quarter tabs of an `.xlsx` export into `metrics-data.md`.
-- `import-csv --wpr-dir wpr --csv path.csv`: Pull manual metric edits from a single-tab `.csv` export.
+- `add-week --wpr-dir wpr [--date YYYY-MM-DD] [--force] [--dry-run]`: Insert a blank preview week in date order without regenerating existing weeks. Reject dates on the wrong weekday. `--force` resets the specified week's metric cells and reopens it as preview while retaining its comparison group and surrounding content.
+- `import-xlsx --wpr-dir wpr --xlsx path.xlsx [--dry-run]`: Pull manual metric edits from all quarter tabs of an `.xlsx` export into `metrics-data.md`.
+- `import-csv --wpr-dir wpr --csv path.csv [--dry-run]`: Pull manual metric edits from a single-tab `.csv` export.
 - `build --wpr-dir wpr --out-dir wpr-output [--active-tab-first] [--overwrite-review]`: Generate `wpr-workbook.xlsx`, `wpr-review-brief.md`, `wpr-review-brief.html`, `wpr-review-archive.md`, `sheets-payload.json`, and starter `reviews/<date>-wpr.md` (if absent).
+- `plan-sync --payload wpr-output/sheets-payload.json [--previous previous-payload.json] --date YYYY-MM-DD --out sync-plan.json`: Generate bounded date-keyed writes and separate catalog updates without network access. Inspect live dates and row layout before applying.
+
+`build` also writes `wpr-review-draft.md` with fresh generated highlights. The selected dated review supplies all final brief exports; reconcile its numeric tables against the draft before syncing. Add `- **Reviewed Summary:** <reviewed note and optional link>` to that dated review for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables, never arbitrary metric annotations.
+
+Generated workbooks persist numeric date caches beside formulas and include a hidden `Metric ID` column. XLSX imports use those stable identities, accept valid zero, validate all candidate values before saving, and report unmatched rows and uncomputed headers with counts and reasons. Display-label changes do not change metric identity.

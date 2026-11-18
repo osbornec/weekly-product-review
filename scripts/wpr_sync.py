@@ -17,19 +17,26 @@ and `wpr/reviews/*.md`) and supports:
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import datetime as dt
+import difflib
 import hashlib
 import html
 import json
+import math
+import os
 import re
 import sys
+import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape as xml_escape
+from urllib.parse import urlsplit
 
 
 WEEKDAY_MAP = {
@@ -152,6 +159,8 @@ class WeekCell:
 class WeekEntry:
     week_date: dt.date
     cells: Dict[str, WeekCell] = field(default_factory=dict)
+    period_state: str = "closed"
+    comparison_group: str = ""
 
 
 def parse_number(raw: str) -> Optional[float]:
@@ -164,9 +173,32 @@ def parse_number(raw: str) -> Optional[float]:
     cleaned = s.replace(",", "").replace("$", "").replace("€", "").replace("£", "").rstrip("%").strip()
     try:
         val = float(cleaned)
-        return val / 100.0 if is_pct else val
+        return (val / 100.0 if is_pct else val) if math.isfinite(val) else None
     except ValueError:
         return None
+
+
+def _markdown_cell_spans(line: str) -> List[Tuple[int, int]]:
+    """Locate pipe-delimited cells, retaining escaped pipes inside a cell."""
+    delimiters = []
+    for idx, char in enumerate(line):
+        if char != "|":
+            continue
+        previous = idx - 1
+        while previous >= 0 and line[previous] == "\\":
+            previous -= 1
+        if (idx - previous - 1) % 2 == 0:
+            delimiters.append(idx)
+    return [(left + 1, right) for left, right in zip(delimiters, delimiters[1:])]
+
+
+def _markdown_cells(line: str) -> List[str]:
+    return [line[start:end].strip() for start, end in _markdown_cell_spans(line)]
+
+
+def _metric_table_start(lines: List[str]) -> Optional[int]:
+    required = {"ID", "Metric", "Value", "Status", "Note"}
+    return next((idx for idx, line in enumerate(lines) if required.issubset(_markdown_cells(line))), None)
 
 
 def parse_markdown_table(lines: List[str]) -> List[Dict[str, str]]:
@@ -175,7 +207,7 @@ def parse_markdown_table(lines: List[str]) -> List[Dict[str, str]]:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("|") and stripped.endswith("|"):
-            parts = [p.strip() for p in stripped[1:-1].split("|")]
+            parts = _markdown_cells(stripped)
             rows.append(parts)
         elif rows:
             break
@@ -284,12 +316,23 @@ def load_metrics_data(path: Path) -> List[WeekEntry]:
             j = i + 1
             while j < len(lines) and not re.match(r"^\s*##\s+Week\s+\d{4}-\d{2}-\d{2}\b", lines[j]):
                 j += 1
-            table_rows = parse_markdown_table(lines[i + 1 : j])
+            section_lines = lines[i + 1 : j]
+            table_start = _metric_table_start(section_lines)
+            table_rows = parse_markdown_table(section_lines[table_start:]) if table_start is not None else []
             entry = WeekEntry(week_date=wdate)
+            for section_line in section_lines:
+                state = re.match(r"^- Period State:\s*(\S+)", section_line, re.I)
+                group = re.match(r"^- Comparison Group:\s*(.*)", section_line, re.I)
+                if state:
+                    entry.period_state = state[1].lower()
+                if group:
+                    entry.comparison_group = group[1].strip()
             for row in table_rows:
                 mid = row.get("ID", "").strip()
                 if not mid:
                     continue
+                if mid in entry.cells:
+                    raise ValueError(f"Duplicate metric row '{mid}' in week {wdate}")
                 vraw = row.get("Value", "").strip()
                 entry.cells[mid] = WeekCell(
                     metric_id=mid,
@@ -308,27 +351,169 @@ def load_metrics_data(path: Path) -> List[WeekEntry]:
     return entries
 
 
-def save_metrics_data(path: Path, cfg: WPRConfig, entries: List[WeekEntry]) -> None:
-    entries_sorted = sorted(entries, key=lambda e: e.week_date, reverse=True)
-    out: List[str] = ["# Weekly Metrics Data", ""]
-    for entry in entries_sorted:
-        q = (entry.week_date.month - 1) // 3 + 1
-        q_start = dt.date(entry.week_date.year, 3 * q - 2, 1)
-        woq = (entry.week_date - q_start).days // 7 + 1
-        yy = str(entry.week_date.year)[-2:]
-        out.append(f"## Week {entry.week_date.isoformat()}")
-        out.append(f"- Quarter: Q{q} {yy} | Week of Quarter: {woq} | Week of Year: {entry.week_date.isocalendar()[1]}")
-        out.append("")
-        out.append("| ID | Metric | Value | Status | Note |")
-        out.append("| :--- | :--- | :--- | :--- | :--- |")
-        for mdef in cfg.metrics:
-            cell = entry.cells.get(mdef.metric_id)
-            vraw = cell.value_raw if cell else ""
-            status = (cell.status if cell and cell.status else mdef.mtype)
-            note = cell.note if cell else (mdef.source_eta if mdef.mtype == "not-collected" else "")
-            out.append(f"| {mdef.metric_id} | {mdef.name} | {vraw} | {status} | {note} |")
-        out.append("")
-    path.write_text("\n".join(out), encoding="utf-8")
+def _metric_cell_fields(cell: WeekCell) -> Dict[str, str]:
+    return {"ID": cell.metric_id, "Metric": cell.metric_name, "Value": cell.value_raw,
+            "Status": cell.status, "Note": cell.note}
+
+
+def _metric_table(entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
+    lines = ["| ID | Metric | Value | Status | Note |",
+             "| :--- | :--- | :--- | :--- | :--- |"]
+    cells = dict(entry.cells)
+    for mdef in cfg.metrics:
+        cell = cells.pop(mdef.metric_id, None)
+        if cell is None:
+            cell = WeekCell(mdef.metric_id, mdef.name, "", None, mdef.mtype,
+                            mdef.source_eta if mdef.mtype == "not-collected" else "")
+        lines.append("| " + " | ".join(_metric_cell_fields(cell).values()) + " |")
+    for cell in cells.values():
+        lines.append("| " + " | ".join(_metric_cell_fields(cell).values()) + " |")
+    return newline.join(lines) + newline + newline
+
+
+def _render_week(entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
+    q = (entry.week_date.month - 1) // 3 + 1
+    q_start = dt.date(entry.week_date.year, 3 * q - 2, 1)
+    woq = (entry.week_date - q_start).days // 7 + 1
+    yy = str(entry.week_date.year)[-2:]
+    heading = (f"## Week {entry.week_date.isoformat()}{newline}"
+               f"- Quarter: Q{q} {yy} | Week of Quarter: {woq} | "
+               f"Week of Year: {entry.week_date.isocalendar()[1]}{newline}{newline}")
+    if entry.period_state != "closed" or entry.comparison_group:
+        heading = heading.rstrip("\r\n") + newline + f"- Period State: {entry.period_state}" + newline
+        if entry.comparison_group:
+            heading += f"- Comparison Group: {entry.comparison_group}" + newline
+        heading += newline
+    return heading + _metric_table(entry, cfg, newline)
+
+
+def _update_week_table(section: str, entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
+    """Patch the existing metric cells without regenerating surrounding Markdown."""
+    lines = section.splitlines(keepends=True)
+    for name, value, default in (("Period State", entry.period_state, "closed"), ("Comparison Group", entry.comparison_group, "")):
+        metadata_idx = next((i for i, line in enumerate(lines) if re.match(r"^- " + name + r":", line, re.I)), None)
+        current = lines[metadata_idx].split(":", 1)[1].strip() if metadata_idx is not None else default
+        if current != value:
+            if metadata_idx is None:
+                lines.insert(1, f"- {name}: {value}{newline}")
+            else:
+                lines[metadata_idx] = f"- {name}: {value}{newline}"
+    table_start = _metric_table_start(lines)
+    if table_start is None:
+        if not entry.cells:
+            return section
+        return section + (newline if section.endswith(newline) else newline * 2) + _metric_table(entry, cfg, newline)
+
+    headers = _markdown_cells(lines[table_start])
+    seen = set()
+    table_end = table_start + 1
+    for idx in range(table_start + 1, len(lines)):
+        line = lines[idx]
+        if not line.strip().startswith("|") or not line.strip().endswith("|"):
+            break
+        table_end = idx + 1
+        fields = _markdown_cells(line)
+        if not fields or all(re.fullmatch(r":?-+:?", c.replace(" ", "")) for c in fields):
+            continue
+        mid_idx = headers.index("ID")
+        if mid_idx >= len(fields):
+            raise ValueError(f"Incomplete metric row in week {entry.week_date}")
+        mid = fields[mid_idx]
+        if mid in seen:
+            raise ValueError(f"Duplicate metric row '{mid}' in week {entry.week_date}; source left unchanged")
+        seen.add(mid)
+        cell = entry.cells.get(mid)
+        if cell is None:
+            continue
+        spans = _markdown_cell_spans(line)
+        desired = _metric_cell_fields(cell)
+        for col in range(len(headers) - 1, -1, -1):
+            if headers[col] not in desired:
+                continue
+            if col >= len(spans):
+                raise ValueError(f"Incomplete metric row '{mid}' in week {entry.week_date}")
+            start, end = spans[col]
+            raw = line[start:end]
+            value = desired[headers[col]]
+            current = raw.strip().lower() if headers[col] == "Status" else raw.strip()
+            if current != value:
+                padding = re.fullmatch(r"(\s*)(.*?)(\s*)", raw)
+                line = line[:start] + padding[1] + value + padding[3] + line[end:]
+        lines[idx] = line
+
+    additions = []
+    for mid, cell in entry.cells.items():
+        if mid not in seen:
+            fields = _metric_cell_fields(cell)
+            additions.append("| " + " | ".join(fields.get(h, "") for h in headers) + " |" + newline)
+    if additions and table_end and not lines[table_end - 1].endswith(("\n", "\r")):
+        lines[table_end - 1] += newline
+    lines[table_end:table_end] = additions
+    return "".join(lines)
+
+
+def save_metrics_data(path: Path, cfg: WPRConfig, entries: List[WeekEntry], dry_run: bool = False) -> bool:
+    """Preserve unrelated text; replace a changed file atomically, or print a dry-run diff."""
+    original = path.read_bytes() if path.exists() else b""
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
+    text = original.decode("utf-8-sig")
+    newline_match = re.search(r"\r\n|\n|\r", text)
+    newline = newline_match[0] if newline_match else "\n"
+    matches = list(re.finditer(r"^[ \t]*##[ \t]+Week[ \t]+(\d{4}-\d{2}-\d{2})\b[^\r\n]*", text, re.M))
+    sections = []
+    by_date = {entry.week_date: entry for entry in entries}
+    if len(by_date) != len(entries):
+        raise ValueError("Duplicate week dates; source left unchanged")
+    seen = set()
+    for idx, match in enumerate(matches):
+        date = dt.date.fromisoformat(match[1])
+        if date in seen:
+            raise ValueError(f"Duplicate week {date}; source left unchanged")
+        seen.add(date)
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        section = text[match.start():end]
+        if date in by_date:
+            section = _update_week_table(section, by_date[date], cfg, newline)
+        sections.append((date, section))
+    for entry in sorted(entries, key=lambda e: e.week_date, reverse=True):
+        if entry.week_date in seen:
+            continue
+        insertion = next((i for i, (date, _) in enumerate(sections) if date < entry.week_date), len(sections))
+        sections.insert(insertion, (entry.week_date, _render_week(entry, cfg, newline)))
+
+    prefix = text[:matches[0].start()] if matches else text
+    if not original:
+        prefix = "# Weekly Metrics Data" + newline * 2
+    new_dates = set(by_date) - seen
+    rendered = prefix
+    for date, section in sections:
+        if date in new_dates and rendered and not rendered.endswith(("\n\n", "\r\n\r\n", "\r\r")):
+            rendered += newline if rendered.endswith(("\n", "\r")) else newline * 2
+        rendered += section
+    updated = bom + rendered.encode("utf-8")
+    if updated == original:
+        return False
+    if dry_run:
+        diff = difflib.unified_diff(text.splitlines(keepends=True), rendered.splitlines(keepends=True),
+                                    fromfile=path.name, tofile=path.name + " (proposed)")
+        sys.stdout.write("".join(diff))
+        return True
+
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix="." + path.name + ".",
+                                         suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(updated)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            os.chmod(temporary, path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+    return True
 
 
 def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
@@ -336,6 +521,8 @@ def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
     warnings: List[str] = []
 
     cfg = load_config(wpr_dir / "wpr-config.md")
+    if cfg.week_ending_day.lower() not in WEEKDAY_MAP:
+        errors.append(f"Invalid Week Ending Day: {cfg.week_ending_day}")
     if not cfg.metrics:
         errors.append("Metric Catalog is empty in wpr-config.md.")
         return errors, warnings
@@ -376,6 +563,27 @@ def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
     data_path = wpr_dir / "metrics-data.md"
     if data_path.exists():
         entries = load_metrics_data(data_path)
+        seen_dates = set()
+        catalog = {m.metric_id: m for m in cfg.metrics}
+        for entry in entries:
+            if entry.week_date in seen_dates:
+                errors.append(f"Duplicate week {entry.week_date}")
+            seen_dates.add(entry.week_date)
+            if entry.week_date.weekday() != WEEKDAY_MAP.get(cfg.week_ending_day.lower(), 4):
+                errors.append(f"Week {entry.week_date} does not end on {cfg.week_ending_day}")
+            if entry.period_state not in {"closed", "preview"}:
+                errors.append(f"Invalid Period State '{entry.period_state}' for {entry.week_date}")
+            for mid, cell in entry.cells.items():
+                if mid not in catalog:
+                    warnings.append(f"Uncatalogued metric '{mid}' retained for {entry.week_date}")
+                    continue
+                issue = input_error(catalog[mid], cell.value_raw)
+                if issue:
+                    errors.append(f"{entry.week_date} / {mid}: {issue}")
+                if cell.status not in VALID_TYPES | {"preview", "stale", "unavailable", "verified-zero", ""}:
+                    errors.append(f"Invalid cell status '{cell.status}' for {entry.week_date} / {mid}")
+                if cell.status == "verified-zero" and cell.value_num != 0:
+                    errors.append(f"verified-zero requires numeric zero for {entry.week_date} / {mid}")
         if not entries:
             warnings.append("metrics-data.md has no week entries yet.")
         else:
@@ -388,6 +596,23 @@ def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
         warnings.append("metrics-data.md does not exist yet.")
 
     return errors, warnings
+
+
+def input_error(metric: MetricDef, raw: str) -> str:
+    if not raw.strip():
+        return ""
+    cleaned = raw.strip()
+    if metric.fmt == "currency":
+        cleaned = re.sub(r"[$€£]", "", cleaned).strip()
+    if metric.fmt == "percent" and cleaned.endswith("%"):
+        cleaned = cleaned[:-1].strip()
+    numeric = re.fullmatch(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+|\.\d+)(?:\.\d*)?(?:[eE][+-]?\d+)?", cleaned)
+    value = parse_number(raw)
+    if not numeric or value is None:
+        return f"Invalid {metric.fmt} value: {raw!r}"
+    if metric.fmt == "int" and not value.is_integer():
+        return f"Integer metric cannot contain a fraction: {raw!r}"
+    return ""
 
 
 def col_letter(idx_1based: int) -> str:
@@ -426,36 +651,101 @@ def evaluate_metric_series(
     """Compute numeric values (including calculated metrics with cross-quarter/year cumsum) chronologically."""
     vals: Dict[Tuple[dt.date, str], Optional[float]] = {}
     running_sums: Dict[str, float] = {}
+    row_ids = {}
+    row = 8
+    section = None
+    for metric in cfg.metrics:
+        if metric.section != section:
+            row += 1
+            section = metric.section
+        row_ids[row] = metric.metric_id
+        row += 2 + len(metric.analyses)
+    catalog = {metric.metric_id: metric for metric in cfg.metrics}
     for entry in entries_asc:
         d = entry.week_date
-        for m in cfg.metrics:
+        resolving = set()
+        def resolve(mid):
+            if (d, mid) in vals:
+                return vals[d, mid]
+            if mid in resolving or mid not in catalog:
+                return None
+            resolving.add(mid)
+            m = catalog[mid]
             cell = entry.cells.get(m.metric_id)
-            if cell and cell.value_num is not None:
-                vals[(d, m.metric_id)] = cell.value_num
-                running_sums[m.metric_id] = running_sums.get(m.metric_id, 0.0) + cell.value_num
-                continue
-            if m.mtype == "calculated" and m.formula:
+            if entry.period_state != "closed" or (cell and cell.status in {"preview", "stale", "unavailable", "not-collected"}):
+                value = None
+            elif cell and cell.value_num is not None:
+                value = cell.value_num
+            elif m.mtype == "calculated" and m.formula:
                 if m.formula.startswith("cumsum:"):
                     src_id = m.formula.split(":", 1)[1].strip()
-                    if vals.get((d, src_id)) is None:
-                        vals[(d, m.metric_id)] = None
-                    else:
-                        vals[(d, m.metric_id)] = running_sums.get(src_id, 0.0)
+                    source = resolve(src_id)
+                    value = running_sums.get(src_id, 0) + source if source is not None else None
                 elif m.formula.startswith("ratio:"):
                     num_id, den_id = [x.strip() for x in m.formula.split(":", 1)[1].split("/")]
-                    num = vals.get((d, num_id))
-                    den = vals.get((d, den_id))
-                    vals[(d, m.metric_id)] = (num / den) if (num is not None and den not in (None, 0.0)) else None
+                    num, den = resolve(num_id), resolve(den_id)
+                    value = num / den if num is not None and den not in (None, 0) else None
                 elif m.formula.startswith("diff:"):
                     a_id, b_id = [x.strip() for x in m.formula.split(":", 1)[1].split("-")]
-                    a = vals.get((d, a_id))
-                    b = vals.get((d, b_id))
-                    vals[(d, m.metric_id)] = (a - b) if (a is not None and b is not None) else None
+                    a, b = resolve(a_id), resolve(b_id)
+                    value = a - b if a is not None and b is not None else None
                 else:
-                    vals[(d, m.metric_id)] = None
+                    value = safe_arithmetic(m.formula, lambda row: resolve(row_ids.get(row, "")))
             else:
-                vals[(d, m.metric_id)] = None
+                value = None
+            resolving.remove(mid)
+            vals[d, mid] = value
+            return value
+        for metric in cfg.metrics:
+            resolve(metric.metric_id)
+        for metric in cfg.metrics:
+            value = vals.get((d, metric.metric_id))
+            if value is not None:
+                running_sums[metric.metric_id] = running_sums.get(metric.metric_id, 0) + value
     return vals
+
+
+def safe_arithmetic(formula, row_value):
+    """Evaluate only numeric constants, metric-cell references and basic arithmetic; never eval code."""
+    expression = re.sub(r"\{col\}(\d+)", r"_r\1", formula.lstrip("="))
+    def calculate(node):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.Name) and re.fullmatch(r"_r\d+", node.id):
+            value = row_value(int(node.id[2:]))
+            if value is None:
+                raise ValueError("Missing referenced value")
+            return value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+            value = calculate(node.operand)
+            return -value if isinstance(node.op, ast.USub) else value
+        if isinstance(node, ast.BinOp):
+            a, b = calculate(node.left), calculate(node.right)
+            if isinstance(node.op, ast.Add): return a + b
+            if isinstance(node.op, ast.Sub): return a - b
+            if isinstance(node.op, ast.Mult): return a * b
+            if isinstance(node.op, ast.Div): return a / b
+        raise ValueError("Unsupported formula syntax")
+    try:
+        value = calculate(ast.parse(expression, mode="eval").body)
+        return value if math.isfinite(value) else None
+    except (ValueError, SyntaxError, ZeroDivisionError, OverflowError, RecursionError):
+        return None
+
+
+def period_statistics(entries: Dict[dt.date, WeekEntry], values: dict, date: dt.date, metric_id: str):
+    """Compare exact adjacent periods; never substitute an older observation for a missing week."""
+    current = entries.get(date)
+    dates = [date - dt.timedelta(days=7 * offset) for offset in range(4)]
+    def comparable(other):
+        return (current is not None and other is not None and current.period_state == other.period_state == "closed"
+                and current.comparison_group == other.comparison_group)
+    prior = values.get((dates[1], metric_id)) if comparable(entries.get(dates[1])) else None
+    cur = values.get((date, metric_id))
+    wow = cur / prior - 1 if cur is not None and prior not in (None, 0) else None
+    window = [values.get((d, metric_id)) if comparable(entries.get(d)) else None for d in dates]
+    average = sum(window) / 4 if all(value is not None for value in window) else None
+    return prior, wow, average
 
 
 def compute_row_signature(cfg: WPRConfig) -> str:
@@ -471,6 +761,51 @@ def compute_row_signature(cfg: WPRConfig) -> str:
     ]
     raw = json.dumps(layout, sort_keys=True).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def compute_catalog_signature(cfg: WPRConfig) -> str:
+    fields = [(m.metric_id, m.name, m.mtype, m.fmt, m.target_raw) for m in cfg.metrics]
+    return hashlib.sha256(json.dumps(fields).encode("utf-8")).hexdigest()[:16]
+
+
+def plan_sync(payload: dict, previous: Optional[dict], date: str) -> dict:
+    """Plan bounded, date-keyed writes; never execute network operations or replace a workbook."""
+    dt.date.fromisoformat(date)
+    if previous and previous.get("row_signature") != payload["row_signature"]:
+        raise ValueError("Metric row layout changed: reconcile live rows and chart references before column sync")
+    catalog_changed = not previous or previous.get("catalog_signature") != payload.get("catalog_signature")
+    if not any(date in tab["week_columns"] for tab in payload["tabs"].values()):
+        raise ValueError(f"No workbook column for {date}")
+    plans = []
+    for title, tab in payload["tabs"].items():
+        if not re.fullmatch(r"Q[1-4] \d{2}|Full Year \d{4}", title):
+            continue
+        column = tab["week_columns"].get(date)
+        if not column and not catalog_changed:
+            continue
+        values = tab["values"]
+        writes = []
+        if column:
+            idx = _col_ref_to_idx(column + "1")[1] - 1
+            writes.append({"range": f"{column}1:{column}{len(values)}", "values": [[row[idx]] for row in values]})
+        if catalog_changed:
+            writes.append({"range": f"A1:B{len(values)}", "values": [row[:2] for row in values]})
+        plans.append({"tab": title, "date": date, "expected_column": column, "writes": writes})
+    if not plans:
+        raise ValueError(f"No workbook column for {date}")
+    return {"date": date, "catalog_changed": catalog_changed, "row_signature": payload["row_signature"],
+            "catalog_signature": payload.get("catalog_signature"), "tabs": plans,
+            "precondition": "Read live metadata, row 4 dates, labels, targets and current target cells; remap columns by date if needed",
+            "network_writes": False}
+
+
+def cmd_plan_sync(args):
+    payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+    previous = json.loads(Path(args.previous).read_text(encoding="utf-8")) if args.previous else None
+    plan = plan_sync(payload, previous, args.date)
+    Path(args.out).write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    print(f"Wrote bounded sync plan: {args.out}")
+    return 0
 
 
 def build_sheet_grid(
@@ -489,6 +824,26 @@ def build_sheet_grid(
     ncols = 2 + len(week_dates_desc)
     oldest_col_idx = ncols
     oldest_col_let = col_letter(oldest_col_idx)
+    def period_refs(date, count, row, metric_id):
+        refs = []
+        current = entries_by_date.get(date)
+        for offset in range(count):
+            target = date - dt.timedelta(days=offset * 7)
+            entry = entries_by_date.get(target)
+            cell = entry.cells.get(metric_id) if entry else None
+            if entry and (entry.period_state != "closed" or (cell and cell.status in {"preview", "stale", "unavailable", "not-collected"})):
+                return []
+            if current and entry and current.comparison_group != entry.comparison_group:
+                return []
+            if target in week_dates_desc:
+                refs.append(f"{col_letter(3 + week_dates_desc.index(target))}{row}")
+            elif prior_q_tab and prior_q_dates and target in prior_q_dates:
+                refs.append(f"'{prior_q_tab}'!{col_letter(3 + prior_q_dates.index(target))}{row}")
+            elif prior_year_tab and prior_year_dates and target in prior_year_dates:
+                refs.append(f"'{prior_year_tab}'!{col_letter(3 + prior_year_dates.index(target))}{row}")
+            else:
+                return []
+        return refs
 
     row_cursor = 8
     metric_row_map: Dict[str, int] = {}
@@ -529,7 +884,7 @@ def build_sheet_grid(
             r4[2 + i] = {"v": excel_serial(wd), "f": None, "fill": FILL_SLATE_SECTION, "fmt": 5, "bold": False, "font": 3, "border": 1, "align": "right"}
         else:
             next_cl = col_letter(c_idx + 1)
-            r4[2 + i] = {"v": None, "f": f"{next_cl}4+7", "fill": FILL_SLATE_SECTION, "fmt": 5, "bold": False, "font": 3, "border": 1, "align": "right"}
+            r4[2 + i] = {"v": excel_serial(wd), "f": f"{next_cl}4+7", "fill": FILL_SLATE_SECTION, "fmt": 5, "bold": False, "font": 3, "border": 1, "align": "right"}
 
     # Row 5: Midnight header bar (Metric | Target | Week Dates)
     r5 = [{"v": None, "f": None, "fill": FILL_MIDNIGHT_HEADER, "fmt": 0, "bold": True, "font": 2, "border": 2, "align": "right"} for _ in range(ncols)]
@@ -543,8 +898,8 @@ def build_sheet_grid(
 
     # Row 6: Subtle Legend strip
     r6 = [{"v": None, "f": None, "fill": FILL_LEGEND_BG, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "left"} for _ in range(ncols)]
-    r6[0]["v"] = "Legend"
-    r6[2 if ncols > 2 else 1]["v"] = "Ice Blue = manual input | Zinc = calculated or automated | Amber = not yet instrumented or N/A"
+    r6[0]["v"] = "Blue: manual | Grey: calculated / automated\nAmber: pending / N/A"
+    r6[0]["align"] = "left_wrap"
 
     grid.extend([r1, r2, r3, r4, r5, r6])
     grid.append(blank_row())  # Row 7 spacer
@@ -584,8 +939,11 @@ def build_sheet_grid(
             cl = col_letter(c_idx)
             entry = entries_by_date.get(wd)
             wcell = entry.cells.get(m.metric_id) if entry else None
+            excluded = entry and (entry.period_state != "closed" or (wcell and wcell.status in {"preview", "stale", "unavailable"}))
 
-            if m.mtype == "not-collected":
+            if excluded:
+                mrow[2 + i] = {"v": None, "f": None, "fill": FILL_AMBER_PENDING, "fmt": m_fmt, "bold": False, "font": 5, "border": 1, "align": "right"}
+            elif m.mtype == "not-collected":
                 eta_text = m.source_eta if (wd <= today_d and i == 0 and m.source_eta) else None
                 mrow[2 + i] = {"v": eta_text, "f": None, "fill": FILL_AMBER_PENDING, "fmt": 0, "bold": False, "font": 5, "border": 1, "align": "right"}
             elif m.mtype == "calculated" and m.formula:
@@ -615,7 +973,8 @@ def build_sheet_grid(
                 mrow[2 + i] = {"v": None, "f": formula_str, "fill": FILL_ZINC_CALC, "fmt": m_fmt, "bold": False, "font": 0, "border": 1, "align": "right"}
             else:
                 val = wcell.value_num if (wcell and wcell.value_num is not None) else (wcell.value_raw if (wcell and wcell.value_raw) else None)
-                mrow[2 + i] = {"v": val, "f": None, "fill": m_fill, "fmt": m_fmt, "bold": False, "font": m_font, "border": 1, "align": "right"}
+                future = wd > today_d and val is None
+                mrow[2 + i] = {"v": val, "f": None, "fill": FILL_LEGEND_BG if future else m_fill, "fmt": m_fmt, "bold": False, "font": 3 if future else m_font, "border": 1, "align": "right"}
         grid.append(mrow)
 
         # Analysis sub-rows
@@ -635,19 +994,23 @@ def build_sheet_grid(
                 c_idx = 3 + i
                 cl = col_letter(c_idx)
                 remaining_right = len(week_dates_desc) - 1 - i
+                if wd > today_d:
+                    arow[2 + i] = {"v": None, "f": None, "fill": FILL_LEGEND_BG, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "right"}
+                    continue
 
                 if analysis == "wow":
-                    if remaining_right < 1:
+                    refs = period_refs(wd, 2, mrow_num, m.metric_id)
+                    if not refs:
                         arow[2 + i] = {"v": "N/A", "f": None, "fill": FILL_AMBER_PENDING, "fmt": 0, "bold": False, "font": 5, "border": 1, "align": "right"}
                     else:
-                        next_cl = col_letter(c_idx + 1)
-                        arow[2 + i] = {"v": None, "f": f'IF(ISBLANK({cl}{mrow_num}),"",IFERROR({cl}{mrow_num}/{next_cl}{mrow_num}-1,"N/A"))', "fill": FILL_ZINC_CALC, "fmt": 4, "bold": False, "font": 3, "border": 1, "align": "right"}
+                        arow[2 + i] = {"v": None, "f": f'IF(COUNT({",".join(refs)})<>2,"N/A",IFERROR({refs[0]}/{refs[1]}-1,"N/A"))', "fill": FILL_ZINC_CALC, "fmt": 4, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "rolling_4w":
-                    if remaining_right < 3:
+                    refs = period_refs(wd, 4, mrow_num, m.metric_id)
+                    if not refs:
                         arow[2 + i] = {"v": "N/A", "f": None, "fill": FILL_AMBER_PENDING, "fmt": 0, "bold": False, "font": 5, "border": 1, "align": "right"}
                     else:
-                        end_cl = col_letter(c_idx + 3)
-                        arow[2 + i] = {"v": None, "f": f'IF(ISBLANK({cl}{mrow_num}),"",AVERAGE({cl}{mrow_num}:{end_cl}{mrow_num}))', "fill": FILL_ZINC_CALC, "fmt": 2 if m_fmt == 1 else m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
+                        args = ",".join(refs)
+                        arow[2 + i] = {"v": None, "f": f'IF(COUNT({args})<>4,"N/A",AVERAGE({args}))', "fill": FILL_ZINC_CALC, "fmt": 2 if m_fmt == 1 else m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "qtd_sum":
                     arow[2 + i] = {"v": None, "f": f'IF(ISBLANK({cl}{mrow_num}),"",SUM({cl}{mrow_num}:${oldest_col_let}{mrow_num}))', "fill": FILL_ZINC_CALC, "fmt": m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "vs_target":
@@ -684,6 +1047,12 @@ def build_sheet_grid(
         if wd in latest_note_by_date:
             notes_row[2 + i] = {"v": latest_note_by_date[wd], "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 0, "border": 1, "align": "left"}
     grid.append(notes_row)
+
+    # A hidden identity column keeps imports independent of editable display labels.
+    identity_rows = {row: mid for mid, row in metric_row_map.items()}
+    for row_idx, row in enumerate(grid, start=1):
+        row.append({"v": "Metric ID" if row_idx == 5 else identity_rows.get(row_idx), "f": None,
+                    "fill": 0, "fmt": 0, "bold": False, "font": 0, "border": 0, "align": None})
 
     return grid, metric_row_map
 
@@ -724,7 +1093,10 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
             '<col min="2" max="2" width="14" customWidth="1"/>',
         ]
         if ncols > 2:
-            cols_xml.append(f'<col min="3" max="{ncols}" width="15" customWidth="1"/>')
+            has_ids = len(grid) >= 5 and grid[4][-1].get("v") == "Metric ID"
+            cols_xml.append(f'<col min="3" max="{ncols - 1 if has_ids else ncols}" width="15" customWidth="1"/>')
+            if has_ids:
+                cols_xml.append(f'<col min="{ncols}" max="{ncols}" width="15" hidden="1" customWidth="1"/>')
 
         rows_xml: List[str] = []
         for r_idx, row in enumerate(grid, start=1):
@@ -737,7 +1109,8 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
                     continue
                 ref = f"{col_letter(c_idx)}{r_idx}"
                 if f is not None:
-                    c_xml.append(f'<c r="{ref}" s="{xf}"><f>{xml_escape(f)}</f></c>')
+                    cached = f"<v>{v}</v>" if isinstance(v, (int, float)) else ""
+                    c_xml.append(f'<c r="{ref}" s="{xf}"><f>{xml_escape(f)}</f>{cached}</c>')
                 elif isinstance(v, (int, float)) and not isinstance(v, bool):
                     c_xml.append(f'<c r="{ref}" s="{xf}"><v>{v}</v></c>')
                 elif v is not None:
@@ -751,7 +1124,7 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
                 elif r_idx in (1, 2, 3, 4):
                     ht = 18
                 elif r_idx == 6:
-                    ht = 19
+                    ht = 36
                 elif any(cell.get("fill") == FILL_SLATE_SECTION for cell in row):
                     ht = 24
                 else:
@@ -777,6 +1150,7 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
             '</sheetView></sheetViews>'
             f'<cols>{"".join(cols_xml)}</cols>'
             f'<sheetData>{"".join(rows_xml)}</sheetData>'
+            + ('<mergeCells count="1"><mergeCell ref="A6:B6"/></mergeCells>' if len(grid) > 5 and str(grid[5][0].get("v", "")).startswith("Blue:") else '') +
             f'{cf_xml}'
             '</worksheet>'
         )
@@ -784,7 +1158,9 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
 
     xfs_parts = []
     for fill_id, font_id, nfmt, border_id, align_key in xf_list:
-        align_xml = f'<alignment horizontal="{align_key}" vertical="center"/>' if align_key else '<alignment vertical="center"/>'
+        wrap = ' wrapText="1"' if align_key.endswith("_wrap") else ''
+        horizontal = align_key.replace("_wrap", "")
+        align_xml = f'<alignment horizontal="{horizontal}" vertical="center"{wrap}/>' if horizontal else '<alignment vertical="center"/>'
         xfs_parts.append(
             f'<xf numFmtId="{nfmt}" fontId="{font_id}" fillId="{fill_id}" borderId="{border_id}" xfId="0"'
             f' applyNumberFormat="{"1" if nfmt else "0"}" applyFont="1"'
@@ -912,13 +1288,35 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
 def format_val(val: Optional[float], fmt: str, dash: str = "—") -> str:
     if val is None:
         return dash
-    if fmt == "percent":
-        return f"{val * 100:.1f}%"
-    if fmt == "currency":
-        return f"${val:,.0f}"
-    if fmt == "float":
-        return f"{val:,.1f}"
-    return f"{val:,.0f}"
+    with localcontext() as context:
+        context.prec = 350
+        number = Decimal(str(val)) * (100 if fmt == "percent" else 1)
+        places = 1 if fmt in {"percent", "float"} else 0
+        rounded = number.quantize(Decimal("0.1") if places else Decimal("1"), rounding=ROUND_HALF_UP)
+        if fmt == "percent": return f"{rounded:.1f}%"
+        if fmt == "currency": return f"${rounded:,.0f}"
+        return f"{rounded:,.{places}f}"
+
+
+def decision_rows(text: str) -> List[Dict[str, str]]:
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if re.match(r"^##\s+(?:5\.\s*)?Decisions(?:\s|$)", line, re.I)), None)
+    if start is None:
+        return []
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    rows = []
+    for idx in range(start + 1, end):
+        if "Action" in _markdown_cells(lines[idx]) and "Status" in _markdown_cells(lines[idx]):
+            rows.extend(parse_markdown_table(lines[idx:end]))
+    return [row for row in rows if row.get("Action", "").strip()]
+
+
+def reviewed_summary(text: str) -> str:
+    explicit = re.search(r"^- \*\*Reviewed Summary:\*\*[ \t]*([^\r\n]+)$", text, re.M)
+    if explicit and explicit[1].strip():
+        return explicit[1].strip()
+    actions = [row["Action"] for row in decision_rows(text)]
+    return "; ".join(actions[:2])
 
 
 def generate_review_brief(
@@ -934,7 +1332,7 @@ def generate_review_brief(
         return md, f"<html><body><h1>{html.escape(cfg.product_name)} Weekly Product Review</h1><p>No weekly data captured yet.</p></body></html>"
 
     newest = entries_desc[0]
-    prior = entries_desc[1] if len(entries_desc) > 1 else None
+    entries_by_date = {entry.week_date: entry for entry in entries_desc}
     q = (newest.week_date.month - 1) // 3 + 1
     q_start = dt.date(newest.week_date.year, 3 * q - 2, 1)
     woq = (newest.week_date - q_start).days // 7 + 1
@@ -946,13 +1344,17 @@ def generate_review_brief(
     if reviews_dir.exists():
         rev_files = sorted(reviews_dir.glob("*-wpr.md"), reverse=True)
         for rf in rev_files:
-            if rf.name.startswith(newest.week_date.isoformat()):
+            if rf.name[:10] >= newest.week_date.isoformat():
                 continue
-            for line in rf.read_text(encoding="utf-8-sig").splitlines():
-                if line.strip().startswith("|") and ("Open" in line or "In Progress" in line):
-                    cols = [c.strip() for c in line.strip()[1:-1].split("|")]
-                    if len(cols) >= 3:
-                        carry_rows.append(f"| {cols[0]} | {cols[1]} | {cols[2]} | Open | From {rf.stem[:10]} |")
+            seen_actions = set()
+            for row in decision_rows(rf.read_text(encoding="utf-8-sig")):
+                if row.get("Status", "").lower() not in {"open", "in progress", "blocked", "pending"}:
+                    continue
+                action, owner, due = row["Action"], row.get("Owner", ""), row.get("Due Date", row.get("Due", ""))
+                key = (action, owner, due)
+                if key not in seen_actions:
+                    carry_rows.append(f"| {action} | {owner} | {due} | {row['Status']} | From {rf.stem[:10]} |")
+                    seen_actions.add(key)
             break
 
     md_lines = [
@@ -960,6 +1362,7 @@ def generate_review_brief(
         "",
         f"- **Cadence:** {cfg.meeting_cadence or 'Weekly (60 mins)'}",
         f"- **Attendees:** {cfg.owners or 'Product, Engineering, Growth & Metric Owners'}",
+        "- **Reviewed Summary:** ",
     ]
     if cfg.sheet_url:
         md_lines.append(f"- **Review Sheet:** {cfg.sheet_url}")
@@ -982,18 +1385,15 @@ def generate_review_brief(
 
     for m in cfg.metrics:
         cur = eval_vals.get((newest.week_date, m.metric_id))
-        prv = eval_vals.get((prior.week_date, m.metric_id)) if prior else None
+        prv, wow_pct, avg4 = period_statistics(entries_by_date, eval_vals, newest.week_date, m.metric_id)
         wow_str = dash
-        wow_pct = None
-        if cur is not None and prv not in (None, 0.0):
-            wow_pct = cur / prv - 1.0
+        if wow_pct is not None:
             wow_str = f"{wow_pct * 100:+.1f}%"
-        last4 = [eval_vals.get((e.week_date, m.metric_id)) for e in entries_desc[:4]]
-        last4_nums = [x for x in last4 if x is not None]
-        avg4 = sum(last4_nums) / len(last4_nums) if len(last4_nums) == 4 else None
 
         traw, tnum = m.target_for_tab(active_tab_name)
-        if m.mtype == "not-collected":
+        if newest.period_state != "closed":
+            signal = "Preview: period not closed"
+        elif m.mtype == "not-collected":
             signal = m.source_eta or "Planned"
         elif m.mtype == "manual" and cur is None:
             signal = "Pending input"
@@ -1038,7 +1438,7 @@ def generate_review_brief(
     md_lines.extend([
         "",
         "## 3. Customer, Sales & Support Anecdotes",
-        "*(Log 1-3 specific user, support, or sales verbatims from this week that explain why numbers moved or expose a cohort gap.)*",
+        "*(Log 1-3 specific customer quotes or feedback items from this week that explain movements or expose a cohort gap.)*",
         "- **Customer / Support:** ",
         "- **Sales / User Feedback:** ",
         "",
@@ -1068,6 +1468,33 @@ def generate_review_brief(
     return md_text, render_brief_html(title, md_text)
 
 
+def _render_inline(text: str, depth: int = 0) -> str:
+    """Render the documented inline subset; escape HTML and reject executable URL schemes."""
+    if depth > 8:
+        return html.escape(text)
+    pattern = r"`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*"
+    output = []
+    position = 0
+    for match in re.finditer(pattern, text):
+        output.append(html.escape(text[position:match.start()].replace(r"\|", "|")))
+        if match[1] is not None:
+            output.append("<code>" + html.escape(match[1]) + "</code>")
+        elif match[2] is not None:
+            label, url = _render_inline(match[2], depth + 1), html.unescape(match[3])
+            try:
+                safe = (urlsplit(url).scheme.lower() in {"", "https", "http", "mailto"}
+                        and not url.startswith(("//", "\\")) and not any(ord(c) < 32 for c in url))
+            except ValueError:
+                safe = False
+            output.append(f'<a href="{html.escape(url, quote=True)}">{label}</a>' if safe else label)
+        else:
+            tag, content = ("strong", match[4]) if match[4] is not None else ("em", match[5])
+            output.append(f"<{tag}>" + _render_inline(content, depth + 1) + f"</{tag}>")
+        position = match.end()
+    output.append(html.escape(text[position:].replace(r"\|", "|")))
+    return "".join(output)
+
+
 def render_brief_html(title: str, md_text: str) -> str:
     """Render a Weekly Product Review Markdown brief into Swiss Precision Grid HTML."""
     html_parts = [
@@ -1094,16 +1521,19 @@ def render_brief_html(title: str, md_text: str) -> str:
     in_list = False
     for line in md_text.splitlines():
         if line.startswith("|"):
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
             if re.fullmatch(r"[\|\s:\-]+", line):
                 continue
-            cells = [c.strip() for c in line.strip()[1:-1].split("|")]
+            cells = _markdown_cells(line)
             if not in_table:
                 in_table = True
-                html_parts.append("<table><thead><tr>" + "".join(f"<th>{html.escape(c)}</th>" for c in cells) + "</tr></thead><tbody>")
+                html_parts.append("<table><thead><tr>" + "".join(f"<th>{_render_inline(c)}</th>" for c in cells) + "</tr></thead><tbody>")
             else:
                 tds = []
                 for idx_c, c in enumerate(cells):
-                    esc = html.escape(c)
+                    esc = _render_inline(c)
                     if idx_c == len(cells) - 1 and c:
                         low_c = c.lower()
                         if "above target" in low_c:
@@ -1124,20 +1554,20 @@ def render_brief_html(title: str, md_text: str) -> str:
             if not in_list:
                 in_list = True
                 html_parts.append("<ul>")
-            txt = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html.escape(line[2:]))
+            txt = _render_inline(line[2:])
             html_parts.append(f"<li>{txt}</li>")
             continue
         if in_list:
             html_parts.append("</ul>")
             in_list = False
         if line.startswith("# "):
-            html_parts.append(f"<h1>{html.escape(line[2:])}</h1>")
+            html_parts.append(f"<h1>{_render_inline(line[2:])}</h1>")
         elif line.startswith("## "):
-            html_parts.append(f"<h2>{html.escape(line[3:])}</h2>")
+            html_parts.append(f"<h2>{_render_inline(line[3:])}</h2>")
         elif line.startswith("### "):
-            html_parts.append(f"<h3>{html.escape(line[4:])}</h3>")
+            html_parts.append(f"<h3>{_render_inline(line[4:])}</h3>")
         elif line.strip():
-            txt = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html.escape(line))
+            txt = _render_inline(line)
             html_parts.append(f"<p>{txt}</p>")
     if in_table:
         html_parts.append("</tbody></table>")
@@ -1197,9 +1627,9 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     latest_note_by_date: Dict[dt.date, str] = {}
     for e in entries_desc:
-        notes = [c.note for c in e.cells.values() if c.note and not c.note.startswith("ETA:")]
-        if notes:
-            latest_note_by_date[e.week_date] = "; ".join(notes[:2])
+        review_path = wpr_dir / "reviews" / f"{e.week_date.isoformat()}-wpr.md"
+        if review_path.exists():
+            latest_note_by_date[e.week_date] = reviewed_summary(review_path.read_text(encoding="utf-8-sig"))
 
     years = sorted({e.week_date.year for e in entries_desc} | {cfg.year})
     year_q_dates = {y: dates_for_year(y, cfg.week_ending_day) for y in years}
@@ -1278,6 +1708,7 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     reviews_dir = wpr_dir / "reviews"
     md_brief, html_brief = generate_review_brief(cfg, entries_desc, eval_vals, reviews_dir)
+    (out_dir / "wpr-review-draft.md").write_text(md_brief, encoding="utf-8")
 
     if entries_desc:
         reviews_dir.mkdir(parents=True, exist_ok=True)
@@ -1287,6 +1718,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             print(f"Created review draft: {rev_path}")
         else:
             rev_text = rev_path.read_text(encoding="utf-8-sig")
+            md_brief = rev_text
             html_title = f"{cfg.product_name} Weekly Product Review - {entries_desc[0].week_date.isoformat()}"
             html_brief = render_brief_html(html_title, rev_text)
 
@@ -1312,6 +1744,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         "years": years,
         "active_tab": active_tab_name,
         "row_signature": row_sig,
+        "catalog_signature": compute_catalog_signature(cfg),
         "tabs": payload_tabs,
     }
     payload_path.write_text(json.dumps(payload_obj, indent=2), encoding="utf-8")
@@ -1337,6 +1770,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_add_week(args: argparse.Namespace) -> int:
     wpr_dir = Path(args.wpr_dir)
+    _preflight_mutation(wpr_dir)
     cfg = load_config(wpr_dir / "wpr-config.md")
     data_path = wpr_dir / "metrics-data.md"
     entries = load_metrics_data(data_path) if data_path.exists() else []
@@ -1352,12 +1786,16 @@ def cmd_add_week(args: argparse.Namespace) -> int:
             d -= dt.timedelta(days=1)
         new_date = d
 
+    if cfg.week_ending_day.lower() not in WEEKDAY_MAP or new_date.weekday() != WEEKDAY_MAP[cfg.week_ending_day.lower()]:
+        raise ValueError(f"Date {new_date} must be a {cfg.week_ending_day}")
+
     if any(e.week_date == new_date for e in entries) and not args.force:
         print(f"Week {new_date.isoformat()} already exists in {data_path}. Use --force to overwrite.", file=sys.stderr)
         return 1
 
+    existing_week = next((e for e in entries if e.week_date == new_date), None)
     entries = [e for e in entries if e.week_date != new_date]
-    new_entry = WeekEntry(week_date=new_date)
+    new_entry = WeekEntry(week_date=new_date, period_state="preview", comparison_group=existing_week.comparison_group if existing_week else "")
     for m in cfg.metrics:
         new_entry.cells[m.metric_id] = WeekCell(
             metric_id=m.metric_id,
@@ -1368,8 +1806,9 @@ def cmd_add_week(args: argparse.Namespace) -> int:
             note=m.source_eta if m.mtype == "not-collected" else "",
         )
     entries.append(new_entry)
-    save_metrics_data(data_path, cfg, entries)
-    print(f"Added week {new_date.isoformat()} to {data_path}")
+    dry_run = getattr(args, "dry_run", False)
+    save_metrics_data(data_path, cfg, entries, dry_run=dry_run)
+    print(f"{'Would add' if dry_run else 'Added'} week {new_date.isoformat()} to {data_path}")
     return 0
 
 
@@ -1377,7 +1816,10 @@ def _reconcile_rows_into_entries(
     cfg: WPRConfig,
     rows: List[List[str]],
     by_date: Dict[dt.date, WeekEntry],
+    report: Optional[dict] = None,
 ) -> int:
+    if report is None:
+        report = {"unmatched_rows": [], "uncomputed_headers": []}
     date_row = None
     for row in rows[:6]:
         if row and row[0].strip().lower() in WEEKDAY_MAP:
@@ -1403,16 +1845,26 @@ def _reconcile_rows_into_entries(
             except ValueError:
                 parsed_d = None
         if parsed_d:
+            if parsed_d.weekday() != WEEKDAY_MAP[cfg.week_ending_day.lower()]:
+                raise ValueError(f"Import date {parsed_d} must be a {cfg.week_ending_day}")
             col_dates[c_idx] = parsed_d
+        else:
+            report["uncomputed_headers"].append(f"Column {col_letter(c_idx + 1)}: uncomputed or invalid date")
 
     name_to_metric = {m.name.lower(): m for m in cfg.metrics}
+    id_to_metric = {m.metric_id: m for m in cfg.metrics}
+    id_column = next((i for row in rows[:6] for i, value in enumerate(row) if value.strip() == "Metric ID"), None)
     updated = 0
     for row in rows[6:]:
         if not row:
             continue
         mname = row[0].strip().lower()
-        mdef = name_to_metric.get(mname)
+        mid = row[id_column].strip() if id_column is not None and id_column < len(row) else ""
+        mdef = id_to_metric.get(mid) if mid else name_to_metric.get(mname)
         if not mdef or mdef.mtype != "manual":
+            analysis_labels = {"wow change", "4-week avg", "qtd total", "ytd total", "target delta", "qoq delta", "yoy delta", "weekly highlights / doc"}
+            if not mdef and mname and mname not in analysis_labels and any(c < len(row) and row[c].strip() for c in col_dates):
+                report["unmatched_rows"].append(f"Unmatched metric: {mid or row[0].strip()}")
             continue
         for c_idx, wd in col_dates.items():
             if c_idx >= len(row):
@@ -1420,6 +1872,9 @@ def _reconcile_rows_into_entries(
             val_raw = row[c_idx].strip()
             if not val_raw:
                 continue
+            issue = input_error(mdef, val_raw)
+            if issue:
+                raise ValueError(f"Import {wd} / {mdef.metric_id}: {issue}; source left unchanged")
             if mdef.fmt == "int" and re.fullmatch(r"-?\d+\.0+", val_raw):
                 val_raw = val_raw.split(".")[0]
             entry = by_date.setdefault(wd, WeekEntry(week_date=wd))
@@ -1437,8 +1892,22 @@ def _reconcile_rows_into_entries(
     return updated
 
 
+def _print_import_report(report):
+    for key, messages in report.items():
+        print(f"{key}: {len(messages)}")
+        for message in messages:
+            print(f"[WARN] {message}")
+
+
+def _preflight_mutation(wpr_dir):
+    errors, _ = validate_wpr(wpr_dir)
+    if errors:
+        raise ValueError("; ".join(errors) + "; source left unchanged")
+
+
 def cmd_import_csv(args: argparse.Namespace) -> int:
     wpr_dir = Path(args.wpr_dir)
+    _preflight_mutation(wpr_dir)
     cfg = load_config(wpr_dir / "wpr-config.md")
     data_path = wpr_dir / "metrics-data.md"
     entries = load_metrics_data(data_path) if data_path.exists() else []
@@ -1451,9 +1920,13 @@ def cmd_import_csv(args: argparse.Namespace) -> int:
         print("Could not find week-ending date row (e.g. 'Friday') in CSV.", file=sys.stderr)
         return 1
 
-    updated = _reconcile_rows_into_entries(cfg, rows, by_date)
-    save_metrics_data(data_path, cfg, list(by_date.values()))
-    print(f"Imported/updated {updated} manual metric cells from {args.csv}")
+    report = {"unmatched_rows": [], "uncomputed_headers": []}
+    updated = _reconcile_rows_into_entries(cfg, rows, by_date, report)
+    _print_import_report(report)
+    dry_run = getattr(args, "dry_run", False)
+    if updated:
+        save_metrics_data(data_path, cfg, list(by_date.values()), dry_run=dry_run)
+    print(f"{'Would import/update' if dry_run else 'Imported/updated'} {updated} manual metric cells from {args.csv}")
     return 0
 
 
@@ -1471,12 +1944,14 @@ def _col_ref_to_idx(ref: str) -> Tuple[int, int]:
 def cmd_import_xlsx(args: argparse.Namespace) -> int:
     """Import manual metric values across all quarter tabs of an .xlsx export (stdlib only)."""
     wpr_dir = Path(args.wpr_dir)
+    _preflight_mutation(wpr_dir)
     cfg = load_config(wpr_dir / "wpr-config.md")
     data_path = wpr_dir / "metrics-data.md"
     entries = load_metrics_data(data_path) if data_path.exists() else []
     by_date = {e.week_date: e for e in entries}
 
     updated = 0
+    report = {"unmatched_rows": [], "uncomputed_headers": []}
     with zipfile.ZipFile(args.xlsx) as z:
         strings: List[str] = []
         if "xl/sharedStrings.xml" in z.namelist():
@@ -1510,6 +1985,8 @@ def cmd_import_xlsx(args: argparse.Namespace) -> int:
                     val = strings[int(v_el.text)] if t_attr == "s" else v_el.text
                 elif is_el is not None:
                     val = "".join(el.text or "" for el in is_el.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"))
+                elif c_el.find("m:f", XLSX_NS) is not None:
+                    val = "=UNCOMPUTED"
                 rows_dict.setdefault(r_num, {})[c_num] = val
                 max_r = max(max_r, r_num)
                 max_c = max(max_c, c_num)
@@ -1519,10 +1996,13 @@ def cmd_import_xlsx(args: argparse.Namespace) -> int:
                 row_map = rows_dict.get(r, {})
                 rows_grid.append([row_map.get(c, "") for c in range(1, max_c + 1)])
 
-            updated += _reconcile_rows_into_entries(cfg, rows_grid, by_date)
+            updated += _reconcile_rows_into_entries(cfg, rows_grid, by_date, report)
 
-    save_metrics_data(data_path, cfg, list(by_date.values()))
-    print(f"Imported/updated {updated} manual metric cells from {args.xlsx}")
+    _print_import_report(report)
+    dry_run = getattr(args, "dry_run", False)
+    if updated:
+        save_metrics_data(data_path, cfg, list(by_date.values()), dry_run=dry_run)
+    print(f"{'Would import/update' if dry_run else 'Imported/updated'} {updated} manual metric cells from {args.xlsx}")
     return 0
 
 
@@ -1537,20 +2017,29 @@ def main() -> int:
     p_add.add_argument("--wpr-dir", default="wpr")
     p_add.add_argument("--date", default=None, help="Week ending date YYYY-MM-DD")
     p_add.add_argument("--force", action="store_true")
+    p_add.add_argument("--dry-run", action="store_true", help="Print the proposed diff without writing")
 
     p_imp = sub.add_parser("import-csv", help="Import manual metric values from a single-tab CSV export")
     p_imp.add_argument("--wpr-dir", default="wpr")
     p_imp.add_argument("--csv", required=True)
+    p_imp.add_argument("--dry-run", action="store_true", help="Print the proposed diff without writing")
 
     p_ix = sub.add_parser("import-xlsx", help="Import manual metric values across all quarter tabs of an .xlsx export")
     p_ix.add_argument("--wpr-dir", default="wpr")
     p_ix.add_argument("--xlsx", required=True)
+    p_ix.add_argument("--dry-run", action="store_true", help="Print the proposed diff without writing")
 
     p_bld = sub.add_parser("build", help="Build multi-year .xlsx workbook, review brief/archive, and sheets-payload.json")
     p_bld.add_argument("--wpr-dir", default="wpr")
     p_bld.add_argument("--out-dir", default="wpr-output")
     p_bld.add_argument("--overwrite-review", action="store_true")
     p_bld.add_argument("--active-tab-first", action="store_true", help="Move the active quarter tab to position 0")
+
+    p_plan = sub.add_parser("plan-sync", help="Plan date-keyed Sheet writes without network access")
+    p_plan.add_argument("--payload", required=True)
+    p_plan.add_argument("--previous")
+    p_plan.add_argument("--date", required=True)
+    p_plan.add_argument("--out", required=True)
 
     args = parser.parse_args()
     if args.cmd == "validate":
@@ -1563,8 +2052,14 @@ def main() -> int:
         return cmd_import_xlsx(args)
     if args.cmd == "build":
         return cmd_build(args)
+    if args.cmd == "plan-sync":
+        return cmd_plan_sync(args)
     return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (ValueError, OSError, zipfile.BadZipFile, ET.ParseError) as error:
+        print(f"[ERROR] {error}", file=sys.stderr)
+        raise SystemExit(1)

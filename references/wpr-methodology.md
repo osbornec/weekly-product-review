@@ -13,7 +13,7 @@ A practical operating cadence for product builders, product managers, and cross-
 1. **Quantitative Scorecard:** Track 7 to 10 core metrics for focused teams or solo builders (or 10 to 20 for multi-function leadership leads) in a flexible rolling sheet.
 2. **Qualitative Verbatims:** Pull 1 to 3 raw user quotes from support tickets, session replays, sales calls, or customer replies each week.
 
-> **Why verbatims sit beside metrics:** Aggregate averages hide localized failures. If customer feedback contradicts an overall trend, treat that tension as a diagnostic clue and split the metric by segment (plan, device, region, acquisition source, or feature usage).
+> **Why customer quotes sit beside metrics:** Aggregate averages hide localized failures. If customer feedback contradicts an overall trend, treat that tension as a diagnostic clue and split the metric by segment (plan, device, region, acquisition source, or feature usage).
 
 ## Five-Stage Weekly Loop
 
@@ -25,7 +25,7 @@ A practical operating cadence for product builders, product managers, and cross-
 2. **Build the Rolling Ledger:**
    - Keep newest dates on the left (`Col C`) with metrics grouped top-to-bottom from headline outcomes down to funnel stages and risk.
    - Color-code cells by origin: **Ice Blue** = manual entry, **Zinc** = calculated or automated feed, **Amber** = pending instrumentation or `N/A`.
-   - Include rolling 4-week averages to smooth weekly noise, QTD/YTD cumulative totals against target, week-over-week deltas, and prior-year seasonal baselines (`YoY`).
+   - Include rolling 4-week averages only for four consecutive, comparable closed observations. A missing week makes the comparison unavailable; zero remains valid. Keep previews and differently windowed historical baselines outside those calculations. Include QTD/YTD totals, exact-date weekly deltas and prior-year seasonal comparisons where appropriate.
 3. **Review with Metric Owners:**
    - Bring product, engineering, design, growth, and support together (or run a focused 20-minute solo Friday audit). Never delegate interpretation to a single analyst reporting upward in isolation.
 4. **Inspect Variance, Then Split:**
@@ -41,7 +41,7 @@ A practical operating cadence for product builders, product managers, and cross-
 
 ## Cadence & Timebox
 
-- **Cross-functional product teams:** **30 to 60 minutes** weekly focused on anomalies, verbatims, and assigned next steps.
+- **Cross-functional product teams:** **30 to 60 minutes** weekly focused on anomalies, customer feedback, and assigned next steps.
 - **Solo builders / creators:** **15 to 30 minutes** weekly (e.g., Friday afternoon) combining automated collector pulls, user replies, and next week's build/distribution priorities.
 
 ## Weekly Product Review vs. Quarterly Planning

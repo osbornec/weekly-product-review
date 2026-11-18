@@ -22,7 +22,11 @@ Most real projects split metrics across local files, APIs, databases, and web da
 
 ## Part 2: Syncing the Sheet & Companion Doc
 
-### Tier 1A — `gdrive` and `gdocs` CLIs (Verified Full-Fidelity In-Place Sync)
+For Windows, connector-first operation, date-keyed writes, catalog changes, scoped Doc updates and destination verification, follow [the runnable connector guide](connector-sync.md). Generate a local plan with `plan-sync`; apply it only after reading actual destination dates and cells. Custom charts, comments and reviewed content require scoped updates.
+
+### CLI route: `gdrive` and `gdocs` (Environment-Specific)
+
+These commands apply only where those CLIs and native conversion/update capabilities are installed. Check their help first. Preserving a file ID does not establish preservation of custom tabs, charts or comments; use the connector route for those destinations. Raw Drive file-byte replacement is not a native Sheets or Docs update API.
 
 *(When building for Google Sheets, pass `--active-tab-first` to `python scripts/wpr_sync.py build` so Google Sheets opens directly on the current quarter tab rather than tab 1.)*
 
@@ -59,10 +63,12 @@ Most real projects split metrics across local files, APIs, databases, and web da
 
 ### Tier 1B — Google Workspace MCP / Sheets API (Non-Destructive Column Sync)
 
+The tool names below are examples, not portable connector APIs. The Google Drive plugin uses bounded `get_spreadsheet_cells` reads and structured `batch_update_spreadsheet` requests. Follow [connector-sync.md](connector-sync.md) for tested request shapes and the equivalent Doc workflow.
+
 If the environment has Google Sheets MCP (`modify_sheet_values`, `format_sheet_range`, `read_sheet_values`) or `gspread` and the team keeps custom chart tabs or comments in Google Sheets:
 1. Compare `wpr-output/sheets-payload.json` → `row_signature` against the previous sync.
-2. When `row_signature` matches (no added/split/reordered metrics), push **only the newest week column + `Notes` row** via `modify_sheet_values` (`USER_ENTERED`) instead of overwriting the workbook—preserving custom charts and sheet comments.
-3. Only rewrite full metric rows/formatting when `row_signature` changes.
+2. When `row_signature` matches, locate the reporting date on both quarter and Full Year tabs and update its column, including reviewed Notes. Compare `catalog_signature` separately; changed labels, targets, types or formats require their corresponding metadata/format updates across managed tabs.
+3. When row layout changes, reconcile affected rows, formulas and chart references before writing. Do not replace the workbook or unrelated tabs automatically.
 
 ### Tier 2 — Universal Offline / Manual Fallback (Codex Sandbox, Grok, Local)
 

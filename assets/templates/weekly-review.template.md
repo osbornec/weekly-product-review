@@ -2,6 +2,9 @@
 
 - **Cadence:** Weekly (60 mins)
 - **Attendees:** Product, Engineering, Design, Growth, Support
+- **Period State:** Preview until cutoff and coverage checks are complete
+- **Capture / Coverage:** <offset-aware capture time, exact source window and access gaps>
+- **Reviewed Summary:** <reviewed note with an evidence link for Sheet Notes>
 
 ## 1. Metric Highlights & Anomalies
 | Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |

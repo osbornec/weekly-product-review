@@ -1,0 +1,28 @@
+{
+  "period_start_exclusive": "2027-02-05T17:00:00+01:00",
+  "period_end_inclusive": "2027-02-12T17:00:00+01:00",
+  "captured_at": "2027-02-12T17:10:00+01:00",
+  "coverage_through": "2027-02-12T17:00:00+01:00",
+  "time_zone": "Europe/Berlin",
+  "comparison_group": "weekly-cutoff-v1",
+  "available": true,
+  "account": {
+    "weekly_reach": {"value": 640, "period_start_exclusive": "2027-02-05T17:00:00+01:00", "period_end_inclusive": "2027-02-12T17:00:00+01:00"},
+    "weekly_visitors": {"value": 32, "period_start_exclusive": "2027-02-05T17:00:00+01:00", "period_end_inclusive": "2027-02-12T17:00:00+01:00"}
+  },
+  "article_counter": {"item_id": "tutorial-a", "prior": 118, "current": 145, "prior_at": "2027-02-05T17:00:00+01:00", "current_at": "2027-02-12T17:00:00+01:00"},
+  "content": [
+    {"item_id": "post-a", "type": "original-post", "url": "https://example.test/posts/a", "weekly_impressions": 270, "lifetime_profile_activity": 8},
+    {"item_id": "post-b", "type": "article-promotion", "url": "https://example.test/posts/b", "article_url": "https://example.test/articles/tutorial-a", "weekly_impressions": 310, "lifetime_profile_activity": 15}
+  ],
+  "events": [
+    {"at": "2027-02-05T17:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-08T10:00:00+01:00", "kind": "publish-original"},
+    {"at": "2027-02-08T11:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-09T11:00:00+01:00", "kind": "bounced-attempt"},
+    {"at": "2027-02-09T11:30:00+01:00", "kind": "resend"},
+    {"at": "2027-02-10T10:00:00+01:00", "kind": "substantive-response", "person_id": "person-a"},
+    {"at": "2027-02-10T11:00:00+01:00", "kind": "automatic-response", "person_id": "person-b"},
+    {"at": "2027-02-12T17:00:00+01:00", "kind": "meeting-confirmed", "meeting_id": "meeting-a"}
+  ]
+}

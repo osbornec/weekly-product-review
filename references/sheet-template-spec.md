@@ -19,8 +19,7 @@ Canonical design system for all Weekly Product Review outputs: Google Sheets / `
 | **Pending / N/A (Warm Amber)** | `#FFEDD5` | `(255, 237, 213)` | Uninstrumented metrics (`ETA: <date>`) and `"N/A"` analysis cells (`#9A3412` ink) |
 | **Canvas / Legend Strip** | `#F8FAFC` | `(248, 250, 252)` | HTML page backdrop, Row 6 legend bar (`#52525B` ink), hairline border `#E2E8F0` / accent `#94A3B8` |
 
-Legend text in Row 6:
-`Ice Blue = manual input | Zinc = calculated or automated | Amber = not yet instrumented or N/A`
+Row 6 merges A6:B6 inside the frozen columns and wraps a two-line legend: `Blue: manual | Grey: calculated / automated` and `Amber: pending / N/A`. Its height is 36pt. This keeps the legend visible when scrolling through dates and prevents clipping. Empty future inputs and analyses use the neutral canvas fill until the reporting date arrives.
 
 ---
 
@@ -40,7 +39,7 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 | **3** | `Week of Year` | *(blank)* | `=WEEKNUM(C4)` | Cool Slate `#F1F5F9`, `#52525B` ink, 18pt |
 | **4** | `Friday` *(or configured day)* | *(blank)* | Oldest col = start date; newer cols `=D4+7` | Cool Slate `#F1F5F9`, Date `yyyy-mm-dd`, 18pt |
 | **5** | `Metric` | `Target` | `=C4` *(formatted `mmm dd`)* | Midnight `#09090B`, Bold `#FAFAFA`, 28pt, Frozen bottom |
-| **6** | `Legend` | *(blank)* | `Ice Blue = manual input \| Zinc = ...` | `#F8FAFC`, `#52525B` ink, 19pt |
+| **6** | Wrapped two-line legend merged across A:B | *(merged)* | *(blank)* | `#F8FAFC`, `#52525B` ink, 36pt |
 | **7** | *(blank separator)* | | | 10pt spacer |
 | **8+** | **Section Header** | *(blank)* | *(blank)* | Cool Slate `#F1F5F9`, `#0F172A` Bold, 24pt |
 | **9+** | Metric rows & Analysis sub-rows | Quarter-scoped target | Values / Formulas | Ice Blue / Zinc / Amber fills, `#E2E8F0` borders, conditional `"N/A"` -> Amber |
@@ -51,9 +50,9 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 ## Standard Formulas (Google Sheets + Excel Compatible)
 
 - **WoW Change (`wow`)**:
-  `=IF(ISBLANK(<c><r>),"",IFERROR(<c><r>/<next><r>-1,"N/A"))` *(Oldest col static Amber `"N/A"`; dynamic `"N/A"` colored Amber via conditional formatting)*
+  `=IF(COUNT(<current>,<prior>)<>2,"N/A",IFERROR(<current>/<prior>-1,"N/A"))`. The prior reference is exactly seven days earlier, including a prior quarter/year tab when needed. Missing or incompatible periods are unavailable; older observations are never substituted.
 - **4-Week Avg (`rolling_4w`)**:
-  `=IF(ISBLANK(<c><r>),"",AVERAGE(<c><r>:<c+3><r>))` *(Oldest 3 cols static Amber `"N/A"`)*
+  `=IF(COUNT(<w0>,<w1>,<w2>,<w3>)<>4,"N/A",AVERAGE(<w0>,<w1>,<w2>,<w3>))`. References are consecutive weekly dates, crossing a quarter/year boundary when necessary. Four closed comparable numeric periods are required, including valid zero. Preview/stale/unavailable values are excluded. Rebuild after closing a period or changing its comparison group.
 - **QTD Total / YTD Total (`qtd_sum`)**:
   `=IF(ISBLANK(<c><r>),"",SUM(<c><r>:$<oldest_col><r>))`
 - **Carryover Cumulative Metric (`cumsum:<id>`)**:
@@ -64,3 +63,5 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
   Aligned by **Week-of-Quarter offset from the oldest (rightmost) column**, comparing Week `w` in the current quarter to Week `w` in `<prev_q>` even when quarters differ in week count.
 - **YoY Delta (`yoy`)**:
   Compares Week `w` on `<Q_or_FY_tab>` against the matching week on the prior year's tab (`=IF(OR(ISBLANK(<c><r>),ISBLANK('<prev_yr_tab>'!<prev_c><r>)),"",IFERROR(<c><r>/'<prev_yr_tab>'!<prev_c><r>-1,"N/A"))`, or Amber `"N/A"` when no prior year exists).
+
+Each row-4 date formula includes its numeric serial cache. A hidden final `Metric ID` column stores stable metric identities for imports. Neither its presence nor `--active-tab-first` changes the calendar date-column map.

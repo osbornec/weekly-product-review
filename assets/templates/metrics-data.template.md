@@ -2,6 +2,8 @@
 
 ## Week 2026-11-13
 - Quarter: Q4 26 | Week of Quarter: 7 | Week of Year: 46
+- Period State: preview
+- Comparison Group: weekly-cutoff-v1
 
 | ID | Metric | Value | Status | Note |
 | :--- | :--- | :--- | :--- | :--- |
