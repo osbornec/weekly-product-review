@@ -15,7 +15,7 @@ python $wprScript build --wpr-dir wpr --out-dir wpr-output --active-tab-first
 python $wprScript plan-sync --payload wpr-output/sheets-payload.json --previous wpr-output/previous-payload.json --date 2027-02-12 --out wpr-output/sync-plan.json
 ```
 
-Omit `--previous` for the first sync. Save the successfully verified payload as `previous-payload.json` only after readback, not merely after submitting a write. The plan command writes a local JSON plan and makes no network calls.
+Omit `--previous` for the first sync. Save the successfully verified Sheet payload as `previous-payload.json` only after Sheet readback, not merely after submitting a write. This checkpoint belongs to the Sheet; a failed Doc update must not discard it. The plan command writes a local JSON plan and makes no network calls.
 
 ## Sheet procedure
 
@@ -46,6 +46,16 @@ Example: a two-cell update in an already-resolved date column; indexes are zero-
 ```
 
 Create a native destination from the local XLSX only for an initial setup. Use the connector's native spreadsheet import action. For the return trip, export the complete native workbook as XLSX and run `import-xlsx --dry-run` before applying it; CSV covers one tab only.
+
+### Connectors that expose only value-range writes
+
+Some connectors expose `modify_sheet_values` rather than raw `updateCells` requests. Check the actual tool schema before using this route:
+
+- Use bounded, quoted tab ranges and explicit `value_input_option`. Separate `RAW` text writes from `USER_ENTERED` numbers and formulas. Keep labels and numeric-looking text literal; do not let a label beginning with `=` become a formula.
+- Preserve numeric zero. Clear intended blank cells explicitly with the connector's clear operation; omission is not a clear. Never clear the whole destination before rewriting it.
+- A values-only operation cannot apply table formatting or establish chart/comment preservation. Use separate supported operations and readback, or report those capabilities as pending.
+- If live date columns differ from the plan, stop formula writes until their references are reconciled. Remapping a range alone does not repair formulas inside it.
+- If the connector cannot preserve required types, blanks or existing content, stop that destination and report the missing capability. A different wrapper name does not establish equivalent behaviour.
 
 ## Doc procedure
 
@@ -81,5 +91,14 @@ Resolve the index, tab ID and column span from the actual table. Do not copy the
 ## Partial completion
 
 Record independent states for collection, source reconciliation, build, Sheet sync and Doc sync. If either destination fails, retain the verified state of the other, record the failure and retry only the pending destination for the same reporting date. Do not claim a complete refresh while a destination is pending.
+
+Keep a project-local checkpoint outside the installed Skill. For each destination, record its native ID, reporting date, intended content revision/hash, state (`pending`, `submitted`, `verified`) and last successful readback. Persist `submitted` before sending a write and mark `verified` only after readback. Keep source and destination credentials out of the checkpoint.
+
+- A timeout or process exit can happen after a server has committed a write. Re-read the same date section/ranges before retrying. If the intended content is already present, verify it without submitting another write.
+- Skip a previously verified destination only while its ID, reporting date and intended content revision still match; check for destination drift. An edited reviewed brief or changed metric/catalog requires a fresh comparison.
+- Save the Sheet payload checkpoint independently of the Doc receipt. Keep pending/error state explicit when readback fails; a successful submission is not a successful refresh.
+- On a Doc revision conflict, retain pending status, re-read and reconcile on the next bounded attempt. Do not reuse the stale revision or append a duplicate date section.
+
+The Skill supplies a collector example, local build/import commands, a sync planner and these operating instructions. It does not supply a scheduler or an unattended connector executor. A project's runner must implement checkpoints, bounded attempts and meaningful nonzero exit status for pending work. Development-only rehearsal tools are kept outside the installed Skill.
 
 Live synthetic verification on 18 November 2026 covered repeat date-scoped writes, label/target changes, prior-week retention, a custom tab, a chart, cell notes, a Drive comment, two native Doc tables, hyperlink retention, all table headers and a four-week native Sheets XLSX export/import round trip. Test destinations contain invented data. These checks do not establish unattended scheduling reliability in another project.

@@ -9,7 +9,7 @@ This skill works across **Codex, Claude Code, Grok, Cursor, and Antigravity**. F
 Most real projects split metrics across local files, APIs, databases, and web dashboards. Automate collection before asking the user for manual numbers:
 
 1. **Local Files, Trackers, CSVs, Databases (`wpr/collect_wpr.py`):**
-   - During Mode 1, scaffold a project-specific `wpr/collect_wpr.py` that parses existing Markdown trackers, JSON/CSV exports, or DB queries and writes values into `wpr/metrics-data.md`.
+   - During Mode 1, scaffold a project-specific `wpr/collect_wpr.py` that parses existing Markdown trackers, JSON/CSV exports, or DB queries and stages candidates using the [collector contract](collector-contract.md). Reconcile only verified candidates into `wpr/metrics-data.md`; unavailable or stale recaptures must preserve verified history.
 2. **Platform Dashboards via Browser / Export (e.g., LinkedIn, Analytics UIs):**
    - **Check native Export buttons first** (e.g., LinkedIn's `post-performance` table has an `Export` button).
    - **Record exact URL + date-range filter + metric label** in `wpr/wpr-config.md` (`## Data Sources`):

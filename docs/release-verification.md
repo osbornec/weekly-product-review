@@ -1,6 +1,6 @@
 # Version 1.1.0 verification
 
-Checked on 18 November 2026. All fixtures are invented; no private reference data is included in the repository.
+Checked on 18 November 2026. All fixtures are invented; no private reference data is included in the repository. The original release checks below used 66 tests; the subsequent [recovery and compatibility verification](recovery-and-compatibility.md) expands the suite to 77 tests and adds actual Python 3.8 execution and a one-shot local scheduler check.
 
 | Area | Evidence |
 | --- | --- |

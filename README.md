@@ -2,7 +2,7 @@
 
 An agent-native Weekly Review workflow for product builders and teams. Your agent helps pick the 7 to 10 metrics that matter, pulls numbers from your trackers, analytics, and web dashboards, pairs anomalies with real customer anecdotes, and keeps a formatted Google Sheet and review Doc updated in open files any agent can read.
 
-Works with **Codex, Claude Code, Grok, Cursor, and Antigravity** using the open `agentskills.io` format and a zero-dependency Python 3 script.
+Uses the open `agentskills.io` format for **Codex, Claude Code, Grok, Cursor, and Antigravity**, with a zero-dependency Python 3.8+ runtime. Connector capabilities depend on the host agent; installing the Skill does not create a scheduler or unattended sync executor.
 
 ```bash
 npx skills add osbornec/weekly-product-review
@@ -53,6 +53,7 @@ Ask your agent:
 
 Run the regression tests with `python -B -m unittest discover -s tests -v`.
 See [version 1.1.0 verification](docs/release-verification.md) for the tested cases and live synthetic connector checks.
+See [recovery and compatibility verification](docs/recovery-and-compatibility.md) for failure injection, actual Python 3.8 execution, offline connector contracts and the one-shot Windows scheduler check.
 
 ## Installed Skill Boundary
 
