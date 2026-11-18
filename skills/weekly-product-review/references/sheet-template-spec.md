@@ -14,12 +14,12 @@ Canonical design system for all Weekly Product Review outputs: Google Sheets / `
 | :--- | :--- | :--- | :--- |
 | **Header Bar (Midnight)** | `#09090B` | `(9, 9, 11)` | Row 5 column headers (`Metric`, `Target`, week dates `mmm dd`), HTML table header, bold `#FAFAFA` ink |
 | **Calendar Strip & Section Dividers (Cool Slate)** | `#F1F5F9` | `(241, 245, 249)` | Rows 1–4 calendar metadata (`#52525B` ink) and section banners (`#0F172A` bold ink) |
-| **Manual Input (Ice Blue)** | `#EFF6FF` | `(239, 246, 255)` | Weekly manual inputs (`type: manual`, `#1E3A8A` ink) |
+| **Manual Input (Ice Blue)** | `#EFF6FF` | `(239, 246, 255)` | Populated manual inputs (`type: manual`, `#1E3A8A` ink) |
 | **Calculated / Automated (Zinc)** | `#FAFAFA` | `(250, 250, 250)` | Formula-driven metrics, automated collectors, active analysis rows (`#52525B` ink) |
-| **Pending / N/A (Warm Amber)** | `#FFEDD5` | `(255, 237, 213)` | Uninstrumented metrics (`ETA: <date>`) and `"N/A"` analysis cells (`#9A3412` ink) |
+| **Preview / Pending / N/A (Warm Amber)** | `#FFEDD5` | `(255, 237, 213)` | Explicit previews, pending metrics and `"N/A"` analysis cells (`#9A3412` ink) |
 | **Canvas / Legend Strip** | `#F8FAFC` | `(248, 250, 252)` | HTML page backdrop, Row 6 legend bar (`#52525B` ink), hairline border `#E2E8F0` / accent `#94A3B8` |
 
-Row 6 merges A6:B6 inside the frozen columns and wraps a two-line legend: `Blue: manual | Grey: calculated / automated` and `Amber: pending / N/A`. Its height is 36pt. This keeps the legend visible when scrolling through dates and prevents clipping. Empty future inputs and analyses use the neutral canvas fill until the reporting date arrives.
+In generated workbooks the legend merges A6:B6 inside the frozen columns and wraps at 36pt. Ordinary blank input cells use the neutral canvas fill. A populated preview takes the amber fill even for a metric normally entered manually.
 
 ---
 
@@ -38,12 +38,14 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 | **2** | `Week of Quarter` | *(blank)* | `=INT((C4-DATE(YEAR(C4),3*C1-2,1))/7)+1` | Cool Slate `#F1F5F9`, `#52525B` ink, 18pt |
 | **3** | `Week of Year` | *(blank)* | `=WEEKNUM(C4)` | Cool Slate `#F1F5F9`, `#52525B` ink, 18pt |
 | **4** | `Friday` *(or configured day)* | *(blank)* | Oldest col = start date; newer cols `=D4+7` | Cool Slate `#F1F5F9`, Date `yyyy-mm-dd`, 18pt |
-| **5** | `Metric` | `Target` | `=C4` *(formatted `mmm dd`)* | Midnight `#09090B`, Bold `#FAFAFA`, 28pt, Frozen bottom |
+| **5** | `Metric` | `Target` | `=C4` *(date only at close, date with “Preview” while open)* | Midnight `#09090B`, Bold `#FAFAFA`, 28pt, Frozen bottom |
 | **6** | Wrapped two-line legend merged across A:B | *(merged)* | *(blank)* | `#F8FAFC`, `#52525B` ink, 36pt |
-| **7** | *(blank separator)* | | | 10pt spacer |
+| **7** | `Coverage / Review Doc` | *(blank)* | One coverage cell per week with the date window, missing sources and a link to the existing Doc | Wrapped text |
 | **8+** | **Section Header** | *(blank)* | *(blank)* | Cool Slate `#F1F5F9`, `#0F172A` Bold, 24pt |
 | **9+** | Metric rows & Analysis sub-rows | Quarter-scoped target | Values / Formulas | Ice Blue / Zinc / Amber fills, `#E2E8F0` borders, conditional `"N/A"` -> Amber |
-| **Bottom** | `Notes` | *(blank)* | Concise weekly note / doc pointer | Cool Slate header + hairline cells |
+| **Bottom** | `Notes` | *(blank)* | Closed-week highlights | Cool Slate header + hairline cells |
+
+These are generated workbook positions. For an existing live Sheet, locate the coverage and highlights rows by purpose, metric rows by ID, and the week column by its actual date. Preserve the calendar key and date formula. Write preview figures as literal text and keep comparison and cumulative cells blank. At close, restore the date-only number format and replace preview text with verified numbers or blanks. Coverage and the Doc link share one cell. Use a separate Notes row for closed-week highlights.
 
 ---
 
@@ -54,9 +56,9 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 - **4-Week Avg (`rolling_4w`)**:
   `=IF(COUNT(<w0>,<w1>,<w2>,<w3>)<>4,"N/A",AVERAGE(<w0>,<w1>,<w2>,<w3>))`. References are consecutive weekly dates, crossing a quarter/year boundary when necessary. Four closed comparable numeric periods are required, including valid zero. Preview/stale/unavailable values are excluded. Rebuild after closing a period or changing its comparison group.
 - **QTD Total / YTD Total (`qtd_sum`)**:
-  `=IF(ISBLANK(<c><r>),"",SUM(<c><r>:$<oldest_col><r>))`
+  `=IF(ISNUMBER(<c><r>),SUM(<c><r>:$<oldest_col><r>),"")`
 - **Carryover Cumulative Metric (`cumsum:<id>`)**:
-  On `Q1` (first year): `=IF(ISBLANK(<c><sr>),"",SUM(<c><sr>:$<oldest><sr>))`. On `Q2`–`Q4` or subsequent years, adds prior quarter/year totals (`+SUM('<prev_tab>'!$C<sr>:$<prev_oldest><sr>)`) so cumulative totals never reset at quarter boundaries.
+  On `Q1` (first year): `=IF(ISNUMBER(<c><sr>),SUM(<c><sr>:$<oldest><sr>),"")`. On later quarters or years, add prior tab totals inside the numeric guard so cumulative totals carry across boundaries.
 - **Target Delta (`vs_target`)**:
   `=IF(OR(ISBLANK(<c><r>),ISBLANK($B<r>)),"",IFERROR(<c><r>/$B<r>-1,"N/A"))`
 - **QoQ Delta (`vs_prior_q`)**:

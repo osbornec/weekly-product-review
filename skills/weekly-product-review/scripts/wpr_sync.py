@@ -50,6 +50,8 @@ WEEKDAY_MAP = {
 }
 
 VALID_TYPES = {"manual", "calculated", "automated", "not-collected"}
+MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July",
+               "August", "September", "October", "November", "December")
 VALID_FORMATS = {"int", "float", "currency", "percent"}
 VALID_ANALYSES = {"wow", "rolling_4w", "qtd_sum", "vs_target", "vs_prior_q", "yoy"}
 
@@ -161,6 +163,8 @@ class WeekEntry:
     cells: Dict[str, WeekCell] = field(default_factory=dict)
     period_state: str = "closed"
     comparison_group: str = ""
+    coverage: str = ""
+    missing_sources: str = ""
 
 
 def parse_number(raw: str) -> Optional[float]:
@@ -327,6 +331,9 @@ def load_metrics_data(path: Path) -> List[WeekEntry]:
                     entry.period_state = state[1].lower()
                 if group:
                     entry.comparison_group = group[1].strip()
+                for label, field_name in (("Coverage", "coverage"), ("Missing Sources", "missing_sources")):
+                    if section_line.lower().startswith(f"- {label.lower()}:"):
+                        setattr(entry, field_name, section_line.split(":", 1)[1].strip())
             for row in table_rows:
                 mid = row.get("ID", "").strip()
                 if not mid:
@@ -379,10 +386,14 @@ def _render_week(entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
     heading = (f"## Week {entry.week_date.isoformat()}{newline}"
                f"- Quarter: Q{q} {yy} | Week of Quarter: {woq} | "
                f"Week of Year: {entry.week_date.isocalendar()[1]}{newline}{newline}")
-    if entry.period_state != "closed" or entry.comparison_group:
+    if entry.period_state != "closed" or entry.comparison_group or entry.coverage or entry.missing_sources:
         heading = heading.rstrip("\r\n") + newline + f"- Period State: {entry.period_state}" + newline
         if entry.comparison_group:
             heading += f"- Comparison Group: {entry.comparison_group}" + newline
+        if entry.coverage:
+            heading += f"- Coverage: {entry.coverage}" + newline
+        if entry.missing_sources:
+            heading += f"- Missing Sources: {entry.missing_sources}" + newline
         heading += newline
     return heading + _metric_table(entry, cfg, newline)
 
@@ -390,7 +401,8 @@ def _render_week(entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
 def _update_week_table(section: str, entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
     """Patch the existing metric cells without regenerating surrounding Markdown."""
     lines = section.splitlines(keepends=True)
-    for name, value, default in (("Period State", entry.period_state, "closed"), ("Comparison Group", entry.comparison_group, "")):
+    for name, value, default in (("Period State", entry.period_state, "closed"), ("Comparison Group", entry.comparison_group, ""),
+                                 ("Coverage", entry.coverage, ""), ("Missing Sources", entry.missing_sources, "")):
         metadata_idx = next((i for i, line in enumerate(lines) if re.match(r"^- " + name + r":", line, re.I)), None)
         current = lines[metadata_idx].split(":", 1)[1].strip() if metadata_idx is not None else default
         if current != value:
@@ -785,12 +797,14 @@ def plan_sync(payload: dict, previous: Optional[dict], date: str) -> dict:
             continue
         values = tab["values"]
         writes = []
+        display = {}
         if column:
             idx = _col_ref_to_idx(column + "1")[1] - 1
             writes.append({"range": f"{column}1:{column}{len(values)}", "values": [[row[idx]] for row in values]})
+            display = tab.get("week_display", {}).get(date, {})
         if catalog_changed:
             writes.append({"range": f"A1:B{len(values)}", "values": [row[:2] for row in values]})
-        plans.append({"tab": title, "date": date, "expected_column": column, "writes": writes})
+        plans.append({"tab": title, "date": date, "expected_column": column, "writes": writes, **display})
     if not plans:
         raise ValueError(f"No workbook column for {date}")
     return {"date": date, "catalog_changed": catalog_changed, "row_signature": payload["row_signature"],
@@ -805,6 +819,66 @@ def cmd_plan_sync(args):
     plan = plan_sync(payload, previous, args.date)
     Path(args.out).write_text(json.dumps(plan, indent=2), encoding="utf-8")
     print(f"Wrote bounded sync plan: {args.out}")
+    return 0
+
+
+def week_heading(date: dt.date) -> str:
+    return f"Week ending {date.day} {MONTH_NAMES[date.month - 1]} {date.year:04d}"
+
+
+def plan_doc_sync(document: dict, date: dt.date) -> dict:
+    """Return the dated section bounds for one freshly read native Docs body."""
+    revision = document.get("revisionId")
+    content = document.get("body", {}).get("content", [])
+    if not revision or not content:
+        raise ValueError("Read the target Doc body and its current revision before planning")
+    sections = []
+    for block in content:
+        paragraph = block.get("paragraph", {})
+        if paragraph.get("paragraphStyle", {}).get("namedStyleType") != "HEADING_1":
+            continue
+        text = "".join(e.get("textRun", {}).get("content", "") for e in paragraph.get("elements", [])).rstrip("\n")
+        if not text.startswith("Week ending "):
+            if re.search(r"\bWeekly Product Review\s*\(\d{4}-\d{2}-\d{2}\b", text, re.I):
+                raise ValueError("Resolve the legacy dated Heading 1 before using a section plan")
+            continue
+        match = re.fullmatch(r"Week ending ([1-9]\d?) ([A-Za-z]+) (\d{4})", text)
+        if not match or match[2] not in MONTH_NAMES:
+            raise ValueError(f"Invalid dated Heading 1: {text}")
+        parsed = dt.date(int(match[3]), MONTH_NAMES.index(match[2]) + 1, int(match[1]))
+        if text != week_heading(parsed):
+            raise ValueError(f"Invalid dated Heading 1: {text}")
+        if sections and sections[-1][0] <= parsed:
+            raise ValueError("Dated Heading 1 sections must be unique and newest first")
+        sections.append((parsed, block["startIndex"]))
+
+    # Docs protects the terminal newline. Its indices are already UTF-16 offsets.
+    end = content[-1]["endIndex"] - 1
+    plan = {"heading": week_heading(date), "action": "insert", "start_index": end, "end_index": end,
+            "at_end": True, "write_control": {"requiredRevisionId": revision}}
+    for index, (section_date, start) in enumerate(sections):
+        if section_date == date:
+            at_end = index + 1 == len(sections)
+            plan.update(action="replace", start_index=start,
+                        end_index=end if at_end else sections[index + 1][1], at_end=at_end)
+            break
+        if section_date < date:
+            plan.update(start_index=start, end_index=start, at_end=False)
+            break
+    return plan
+
+
+def cmd_plan_doc_sync(args):
+    cfg = load_config(Path(args.wpr_dir) / "wpr-config.md")
+    date = dt.date.fromisoformat(args.date)
+    if date.weekday() != WEEKDAY_MAP.get(cfg.week_ending_day.lower()):
+        raise ValueError(f"Date {date} must be a {cfg.week_ending_day}")
+    review = Path(args.wpr_dir) / "reviews" / f"{date.isoformat()}-wpr.md"
+    if review.read_text(encoding="utf-8-sig").splitlines()[:1] != [f"# {week_heading(date)}"]:
+        raise ValueError(f"Set the review's first heading to: # {week_heading(date)}")
+    document = json.loads(Path(args.document).read_text(encoding="utf-8"))
+    plan = plan_doc_sync(document, date)
+    Path(args.out).write_text(json.dumps(plan, indent=2), encoding="utf-8")
     return 0
 
 
@@ -893,16 +967,34 @@ def build_sheet_grid(
     r5[1]["v"] = "Target"
     for i in range(len(week_dates_desc)):
         cl = col_letter(3 + i)
+        week = entries_by_date.get(week_dates_desc[i])
         r5[2 + i]["f"] = f"{cl}4"
-        r5[2 + i]["fmt"] = 6  # mmm dd
+        r5[2 + i]["fmt"] = 7 if week and week.period_state == "preview" else 6
 
     # Row 6: Subtle Legend strip
     r6 = [{"v": None, "f": None, "fill": FILL_LEGEND_BG, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "left"} for _ in range(ncols)]
-    r6[0]["v"] = "Blue: manual | Grey: calculated / automated\nAmber: pending / N/A"
+    r6[0]["v"] = "Blue: manual | Grey: calculated / automated\nAmber: preview / pending / N/A"
     r6[0]["align"] = "left_wrap"
 
     grid.extend([r1, r2, r3, r4, r5, r6])
-    grid.append(blank_row())  # Row 7 spacer
+    coverage_row = blank_row()
+    coverage_row[0]["v"] = "Coverage / Review Doc"
+    doc_url = cfg.doc_url or (f"https://docs.google.com/document/d/{quote(cfg.doc_id, safe='')}/edit" if cfg.doc_id else "")
+    for i, wd in enumerate(week_dates_desc):
+        week = entries_by_date.get(wd)
+        if not week:
+            continue
+        note = "; ".join(filter(None, ("Preview" if week.period_state == "preview" else "", week.coverage,
+                                       f"Missing sources: {week.missing_sources}" if week.missing_sources else "")))
+        cell = coverage_row[2 + i]
+        if doc_url and urlsplit(doc_url).scheme in {"https", "http"}:
+            label = (note + " | Review Doc" if note else "Review Doc").replace('"', '""')
+            url = doc_url.replace('"', '""')
+            cell["f"] = f'HYPERLINK("{url}","{label}")'
+        else:
+            cell["v"] = note or None
+        cell["align"] = "left_wrap"
+    grid.append(coverage_row)
 
     fmt_map = {"int": 1, "float": 2, "currency": 3, "percent": 4}
     today_d = max(entries_by_date.keys()) if entries_by_date else dt.date.today()
@@ -941,7 +1033,17 @@ def build_sheet_grid(
             wcell = entry.cells.get(m.metric_id) if entry else None
             excluded = entry and (entry.period_state != "closed" or (wcell and wcell.status in {"preview", "stale", "unavailable"}))
 
-            if excluded:
+            if entry and entry.period_state == "preview":
+                display = None
+                pending = wcell and wcell.status in {"stale", "unavailable", "not-collected"}
+                if wcell and not pending and wcell.value_num is not None:
+                    display = "0 so far" if wcell.value_num == 0 else f"{format_val(wcell.value_num, m.fmt)} (preview)"
+                elif pending or (wcell and wcell.status == "preview") or m.mtype == "not-collected":
+                    display = "Pending (preview)"
+                mrow[2 + i] = {"v": display, "f": None, "fill": FILL_AMBER_PENDING if display else FILL_LEGEND_BG,
+                               "fmt": 0, "font": 5 if display else 3, "bold": False, "border": 1,
+                               "align": "right", "display_text": bool(display)}
+            elif excluded:
                 mrow[2 + i] = {"v": None, "f": None, "fill": FILL_AMBER_PENDING, "fmt": m_fmt, "bold": False, "font": 5, "border": 1, "align": "right"}
             elif m.mtype == "not-collected":
                 eta_text = m.source_eta if (wd <= today_d and i == 0 and m.source_eta) else None
@@ -957,9 +1059,9 @@ def build_sheet_grid(
                             f"SUM('{ptab}'!$C{sr}:${col_letter(p_oldest_idx)}{sr})"
                             for ptab, p_oldest_idx in prior_cumsum_tabs
                         )
-                        formula_str = f'IF(ISBLANK({cl}{sr}),"",{base_sum}+{carry})'
+                        formula_str = f'IF(ISNUMBER({cl}{sr}),{base_sum}+{carry},"")'
                     else:
-                        formula_str = f'IF(ISBLANK({cl}{sr}),"",{base_sum})'
+                        formula_str = f'IF(ISNUMBER({cl}{sr}),{base_sum},"")'
                 elif m.formula.startswith("ratio:"):
                     a_id, b_id = [x.strip() for x in m.formula.split(":", 1)[1].split("/")]
                     ar, br = metric_row_map[a_id], metric_row_map[b_id]
@@ -973,8 +1075,7 @@ def build_sheet_grid(
                 mrow[2 + i] = {"v": None, "f": formula_str, "fill": FILL_ZINC_CALC, "fmt": m_fmt, "bold": False, "font": 0, "border": 1, "align": "right"}
             else:
                 val = wcell.value_num if (wcell and wcell.value_num is not None) else (wcell.value_raw if (wcell and wcell.value_raw) else None)
-                future = wd > today_d and val is None
-                mrow[2 + i] = {"v": val, "f": None, "fill": FILL_LEGEND_BG if future else m_fill, "fmt": m_fmt, "bold": False, "font": 3 if future else m_font, "border": 1, "align": "right"}
+                mrow[2 + i] = {"v": val, "f": None, "fill": FILL_LEGEND_BG if val is None else m_fill, "fmt": m_fmt, "bold": False, "font": 3 if val is None else m_font, "border": 1, "align": "right"}
         grid.append(mrow)
 
         # Analysis sub-rows
@@ -994,7 +1095,7 @@ def build_sheet_grid(
                 c_idx = 3 + i
                 cl = col_letter(c_idx)
                 remaining_right = len(week_dates_desc) - 1 - i
-                if wd > today_d:
+                if wd > today_d or (wd in entries_by_date and entries_by_date[wd].period_state == "preview"):
                     arow[2 + i] = {"v": None, "f": None, "fill": FILL_LEGEND_BG, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "right"}
                     continue
 
@@ -1012,7 +1113,7 @@ def build_sheet_grid(
                         args = ",".join(refs)
                         arow[2 + i] = {"v": None, "f": f'IF(COUNT({args})<>4,"N/A",AVERAGE({args}))', "fill": FILL_ZINC_CALC, "fmt": 2 if m_fmt == 1 else m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "qtd_sum":
-                    arow[2 + i] = {"v": None, "f": f'IF(ISBLANK({cl}{mrow_num}),"",SUM({cl}{mrow_num}:${oldest_col_let}{mrow_num}))', "fill": FILL_ZINC_CALC, "fmt": m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
+                    arow[2 + i] = {"v": None, "f": f'IF(ISNUMBER({cl}{mrow_num}),SUM({cl}{mrow_num}:${oldest_col_let}{mrow_num}),"")', "fill": FILL_ZINC_CALC, "fmt": m_fmt, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "vs_target":
                     arow[2 + i] = {"v": None, "f": f'IF(OR(ISBLANK({cl}{mrow_num}),ISBLANK($B{mrow_num})),"",IFERROR({cl}{mrow_num}/$B{mrow_num}-1,"N/A"))', "fill": FILL_ZINC_CALC, "fmt": 4, "bold": False, "font": 3, "border": 1, "align": "right"}
                 elif analysis == "vs_prior_q":
@@ -1044,7 +1145,7 @@ def build_sheet_grid(
     notes_row[0] = {"v": "Weekly Highlights / Doc", "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "left"}
     notes_row[1] = {"v": None, "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": None}
     for i, wd in enumerate(week_dates_desc):
-        if wd in latest_note_by_date:
+        if wd in latest_note_by_date and wd in entries_by_date and entries_by_date[wd].period_state == "closed":
             notes_row[2 + i] = {"v": latest_note_by_date[wd], "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 0, "border": 1, "align": "left"}
     grid.append(notes_row)
 
@@ -1068,7 +1169,7 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
             shared_strings.append(s)
         return ss_index[s]
 
-    fmt_code_map = {0: 0, 1: 3, 2: 167, 3: 165, 4: 166, 5: 164, 6: 168}
+    fmt_code_map = {0: 0, 1: 3, 2: 167, 3: 165, 4: 166, 5: 164, 6: 168, 7: 169}
     # (fill_id, font_id, numFmtId, border_id, align_key)
     xf_list: List[Tuple[int, int, int, int, str]] = [(0, 0, 0, 0, "")]
     xf_map: Dict[Tuple[int, int, int, int, str], int] = {(0, 0, 0, 0, ""): 0}
@@ -1125,13 +1226,13 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
                     ht = 18
                 elif r_idx == 6:
                     ht = 36
+                elif r_idx == 7:
+                    ht = 48
                 elif any(cell.get("fill") == FILL_SLATE_SECTION for cell in row):
                     ht = 24
                 else:
                     ht = 21
                 rows_xml.append(f'<row r="{r_idx}" ht="{ht}" customHeight="1">{"".join(c_xml)}</row>')
-            elif r_idx == 7:
-                rows_xml.append(f'<row r="{r_idx}" ht="10" customHeight="1"/>')
 
         tab_sel = "1" if s_idx_zero == active_tab_idx else "0"
         max_row = max(len(grid), 8)
@@ -1171,12 +1272,13 @@ def write_xlsx(sheets: List[Tuple[str, List[List[dict]]]], out_path: Path, activ
     styles_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<numFmts count="5">'
+        '<numFmts count="6">'
         '<numFmt numFmtId="164" formatCode="yyyy-mm-dd"/>'
         '<numFmt numFmtId="165" formatCode="$#,##0"/>'
         '<numFmt numFmtId="166" formatCode="0.0%"/>'
         '<numFmt numFmtId="167" formatCode="#,##0.0"/>'
         '<numFmt numFmtId="168" formatCode="mmm dd"/>'
+        '<numFmt numFmtId="169" formatCode="mmm dd &quot;Preview&quot;"/>'
         '</numFmts>'
         '<fonts count="6">'
         '<font><sz val="10"/><color rgb="FF09090B"/><name val="Inter"/></font>'
@@ -1334,9 +1436,6 @@ def generate_review_brief(
     newest = entries_desc[0]
     entries_by_date = {entry.week_date: entry for entry in entries_desc}
     q = (newest.week_date.month - 1) // 3 + 1
-    q_start = dt.date(newest.week_date.year, 3 * q - 2, 1)
-    woq = (newest.week_date - q_start).days // 7 + 1
-    woy = newest.week_date.isocalendar()[1]
     yy = str(newest.week_date.year)[-2:]
     active_tab_name = f"Q{q} {yy}"
 
@@ -1358,12 +1457,18 @@ def generate_review_brief(
             break
 
     md_lines = [
-        f"# {cfg.product_name} {dash} Weekly Product Review ({newest.week_date.isoformat()}, Q{q} W{woq} / W{woy})",
+        f"# {week_heading(newest.week_date)}",
         "",
+        f"- **Period State:** {newest.period_state.capitalize()}",
+        f"- **Product / Program:** {cfg.product_name}",
         f"- **Cadence:** {cfg.meeting_cadence or 'Weekly (60 mins)'}",
         f"- **Attendees:** {cfg.owners or 'Product, Engineering, Growth & Metric Owners'}",
         "- **Reviewed Summary:** ",
     ]
+    if newest.coverage:
+        md_lines.append(f"- **Coverage:** {newest.coverage}")
+    if newest.missing_sources:
+        md_lines.append(f"- **Missing Sources:** {newest.missing_sources}")
     if cfg.sheet_url:
         md_lines.append(f"- **Review Sheet:** {cfg.sheet_url}")
     if cfg.doc_url:
@@ -1385,6 +1490,8 @@ def generate_review_brief(
 
     for m in cfg.metrics:
         cur = eval_vals.get((newest.week_date, m.metric_id))
+        observed = newest.cells.get(m.metric_id)
+        display = format_val(cur, m.fmt, dash)
         prv, wow_pct, avg4 = period_statistics(entries_by_date, eval_vals, newest.week_date, m.metric_id)
         wow_str = dash
         if wow_pct is not None:
@@ -1393,6 +1500,8 @@ def generate_review_brief(
         traw, tnum = m.target_for_tab(active_tab_name)
         if newest.period_state != "closed":
             signal = "Preview: period not closed"
+            if observed and observed.value_num is not None and observed.status not in {"stale", "unavailable", "not-collected"}:
+                display = "0 so far" if observed.value_num == 0 else format_val(observed.value_num, m.fmt)
         elif m.mtype == "not-collected":
             signal = m.source_eta or "Planned"
         elif cur is None:
@@ -1410,7 +1519,7 @@ def generate_review_brief(
 
         target_disp = format_val(tnum, m.fmt, dash) if tnum is not None else (traw or dash)
         md_lines.append(
-            f"| {m.section} | {m.name} | {format_val(cur, m.fmt, dash)} | {format_val(prv, m.fmt, dash)} | "
+            f"| {m.section} | {m.name} | {display} | {format_val(prv, m.fmt, dash)} | "
             f"{wow_str} | {format_val(avg4, 'float' if m.fmt == 'int' else m.fmt, dash)} | "
             f"{target_disp} | {signal} |"
         )
@@ -1642,8 +1751,24 @@ def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date]) -> d
             if cell["fill"] in fill_hex:
                 fills.append((f"{col_letter(c_idx)}{r_idx}", fill_hex[cell["fill"]]))
         values.append(row_vals)
-    week_cols = {wd.isoformat(): col_letter(3 + idx) for idx, wd in enumerate(week_dates_desc)}
-    return {"values": values, "cell_fills": fills, "week_columns": week_cols}
+    week_cols = {}
+    week_display = {}
+    for index, wd in enumerate(week_dates_desc, start=2):
+        date, col = wd.isoformat(), col_letter(index + 1)
+        week_cols[date] = col
+        preview = grid[4][index]["fmt"] == 7
+        week_display[date] = {
+            "date_header": {"cell": f"{col}5", "number_format": 'mmm dd "Preview"' if preview else "mmm dd"},
+            "coverage_cell": f"{col}7",
+            "notes_cell": f"{col}{len(grid)}",
+            "text_cells": [f"{col}{r}" for r, row in enumerate(grid, 1) if row[index].get("display_text")],
+            "number_cells": [f"{col}{r}" for r, row in enumerate(grid, 1)
+                             if row[index]["f"] is None and isinstance(row[index]["v"], (int, float))
+                             and row[index]["fmt"] != 5],
+            "fills": {f"{col}{r}": fill_hex[row[index]["fill"]] for r, row in enumerate(grid, 1)
+                      if row[index]["fill"] in fill_hex},
+        }
+    return {"values": values, "cell_fills": fills, "week_columns": week_cols, "week_display": week_display}
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -1904,7 +2029,7 @@ def _reconcile_rows_into_entries(
         mid = row[id_column].strip() if id_column is not None and id_column < len(row) else ""
         mdef = id_to_metric.get(mid) if mid else name_to_metric.get(mname)
         if not mdef or mdef.mtype != "manual":
-            analysis_labels = {"wow change", "4-week avg", "qtd total", "ytd total", "target delta", "qoq delta", "yoy delta", "weekly highlights / doc"}
+            analysis_labels = {"wow change", "4-week avg", "qtd total", "ytd total", "target delta", "qoq delta", "yoy delta", "weekly highlights / doc", "coverage / review doc"}
             if not mdef and mname and mname not in analysis_labels and any(c < len(row) and row[c].strip() for c in col_dates):
                 report["unmatched_rows"].append(f"Unmatched metric: {mid or row[0].strip()}")
             continue
@@ -1912,7 +2037,7 @@ def _reconcile_rows_into_entries(
             if c_idx >= len(row):
                 continue
             val_raw = row[c_idx].strip()
-            if not val_raw:
+            if not val_raw or val_raw.endswith(" (preview)") or val_raw == "0 so far":
                 continue
             issue = input_error(mdef, val_raw)
             if issue:
@@ -2083,6 +2208,12 @@ def main() -> int:
     p_plan.add_argument("--date", required=True)
     p_plan.add_argument("--out", required=True)
 
+    p_doc = sub.add_parser("plan-doc-sync", help="Locate the dated section in a fresh local Docs snapshot")
+    p_doc.add_argument("--wpr-dir", default="wpr")
+    p_doc.add_argument("--document", required=True)
+    p_doc.add_argument("--date", required=True)
+    p_doc.add_argument("--out", required=True)
+
     args = parser.parse_args()
     if args.cmd == "validate":
         return cmd_validate(args)
@@ -2096,6 +2227,8 @@ def main() -> int:
         return cmd_build(args)
     if args.cmd == "plan-sync":
         return cmd_plan_sync(args)
+    if args.cmd == "plan-doc-sync":
+        return cmd_plan_doc_sync(args)
     return 1
 
 

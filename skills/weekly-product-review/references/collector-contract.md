@@ -17,6 +17,7 @@ Use this contract when building a project-specific collector. See [the synthetic
 ## State rules
 
 - A numeric zero requires checked coverage for the whole interval. Missing access, incomplete coverage and no returned rows do not establish zero.
+- Show a partial observation in the usual scorecard cell as preview text. A count of zero within partial coverage is `0 so far`. Record the source window and capture time. At close, list any missing sources and publish verified values independently. For example, a warehouse review can close with 32 verified shipments and zero verified returns, while a stale carrier feed and a cumulative counter without a comparable baseline stay blank.
 - Keep observations from an unfinished interval outside the closed weekly series. New weeks created by `add-week` have `Period State: preview`. After the cutoff, check each metric's evidence and mark the period `closed`: verified values may coexist with blank `unavailable` or `stale` cells. Missing access to one source does not make an independent, fully covered observation provisional. Never close a still-open interval or admit an unverified numeric value merely to display it.
 - Legacy week tables without a period-state line are treated as closed for compatibility. Migrate genuinely provisional historical rows explicitly.
 - Cell statuses `preview`, `unavailable` and `stale` do not contribute to calculations. `verified-zero` requires numeric zero. Keep the collection origin (`manual` or `automated`) in the source record.

@@ -37,6 +37,8 @@ Report the local output folder and separate results for the Sheet and Doc. For e
 6. Apply changed formatting only to the affected managed ranges. Preserve cell notes, validation and comments by omitting those fields from content writes. Preserve the hidden identity column. Copy no charts or custom tabs from the generated workbook over their live counterparts.
 7. Read back exact dates, values, blanks versus zero, formulas, labels, targets, reviewed Notes links, custom-tab sentinels, chart IDs and comments. Inspect rendered layout. Mark Sheet sync verified only after these checks.
 
+For a preview, keep the date key and date formula. Apply `date_header.number_format` to the displayed date header. Write `text_cells` as literal strings. Send entries in `number_cells` as numeric values, including verified zero. Keep the current comparison and cumulative cells blank. Use `coverage_cell` for both coverage dates and the link to the existing Doc. Keep closed highlights in `notes_cell`. At close, restore the date-only format, replace preview text with verified numbers or blanks, and name missing sources in the coverage cell. The plan supplies generated worksheet coordinates and fills. Locate the matching live rows by purpose and metric ID and the column by date before applying them. Preserve unrelated cells and existing links.
+
 Example: a two-cell update in an already-resolved date column; indexes are zero-based.
 
 ```json
@@ -69,12 +71,12 @@ Some connectors expose `modify_sheet_values` rather than raw `updateCells` reque
 
 ## Doc procedure
 
-1. Read the native document's revision ID, tab IDs, headings, table cells and links. Select the dated review by its exact date. Preserve earlier completed reviews and all unrelated tabs.
-2. Reconcile numeric highlights in the dated Markdown review against the fresh `wpr-review-draft.md`. The selected dated review remains authoritative for the final Markdown, HTML and archive exports.
-3. Update only the matching date section, paragraphs or table cells. If absent, insert that date once. Repeated runs must find and update the same section. Use native tables and link text, not flattened Markdown tables or raw link syntax.
-4. Send `write_control.requiredRevisionId` with the current revision. Calculate indexes in UTF-16 units. Within a batch, insert text at descending positions or account for every earlier index shift. On revision conflict, re-read and reconcile; do not blindly retry.
+1. Use one existing Google Doc for review history. In the flat `wpr/reviews/` folder, keep one `YYYY-MM-DD-wpr.md` file per reporting week. Derive the date from the project's configured week ending and validated dated record. Use `Week ending D Month YYYY` as both the Markdown H1 and the native Doc Heading 1. Put period status and source coverage below it. If editing a legacy review, update its heading only for the selected week and preserve the rest of its content.
+2. Reconcile numeric highlights in the dated Markdown review against the fresh `wpr-review-draft.md`. The dated review remains authoritative for final exports. Keep preview observations labelled on the scorecard. At close, publish verified values and name missing sources.
+3. Read the exact Doc before every write or retry. Include the current revision, selected tab, top-level headings, tables and links. Match the exact dated Heading 1 and update only through the next dated Heading 1 or the end of the Doc. If it is absent, insert it in descending week-ending date order. When a legacy heading could belong to the same week or obscure the section boundary, reconcile it before writing so you do not insert a duplicate or replace another week.
+4. Use `plan-doc-sync --wpr-dir wpr --document doc-snapshot.json --date 2027-03-10 --out doc-plan.json` with the project's date in place of this synthetic example. Give it the native snapshot's `revisionId` and `body.content`. For a tabbed Doc, put the selected tab's body in `body` and use its tab ID in request locations and ranges. The plan returns the insertion point or exclusive replacement bounds and the required revision. Preserve the terminal newline and insert a paragraph break when appending after text. Use scoped native edits, maintain link text and tables, and take care with structural boundaries. Docs indices are UTF-16 offsets. On conflict or retry, read the Doc again and recompute the bounds.
 5. Apply semantic paragraph headings first, then Inter typography to their text ranges so the destination's default named style does not reset the typeface. Apply Cool Slate table headers. Enumerate every native table in the updated date section; style each header row, including tables nested in later archive weeks when those weeks are explicitly in scope. Do not assume `table 1` is the only table.
-6. Read back article/post titles, clickable target URLs, numeric cells, action status, both table headers and the prior review. Verify that the date heading occurs once.
+6. Read back the Doc. Verify exactly one matching dated Heading 1, descending week order, synced figures, status, coverage, links and table headers. Verify that untouched sections and their links match the prewrite read.
 
 For each table's resolved start index, the Docs request shape is:
 

@@ -1,10 +1,12 @@
-# <Product Name> — Weekly Product Review (YYYY-MM-DD, Q_ W_ / W__)
+# Week ending <D Month YYYY>
 
+- **Period State:** <Preview or Closed>
+- **Product / Program:** <Name>
 - **Cadence:** Weekly (60 mins)
 - **Attendees:** Product, Engineering, Design, Growth, Support
-- **Period State:** Preview while the interval is open; closed after cutoff with per-metric coverage states
 - **Capture / Coverage:** <offset-aware capture time, exact source window and access gaps>
-- **Reviewed Summary:** <reviewed note with an evidence link for Sheet Notes>
+- **Missing Sources:** <sources still missing, or None>
+- **Reviewed Summary:** <closed-week highlight for Sheet Notes, with an evidence link if useful>
 
 ## 1. Metric Highlights & Anomalies
 | Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |

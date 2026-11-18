@@ -63,6 +63,19 @@ class ImportValidationTests(unittest.TestCase):
         self.assertIn("uncomputed_headers: 1", output)
         self.assertEqual(self.data.read_bytes(), SOURCE.encode())
 
+    def test_exported_preview_values_do_not_import_as_closed_observations(self):
+        preview = SOURCE.replace("## Week 2027-01-08\n", "## Week 2027-01-08\n- Period State: preview\n")
+        self.data.write_text(preview, encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(wpr.cmd_build(argparse.Namespace(wpr_dir=self.root, out_dir=self.root / "output",
+                                                             active_tab_first=True, overwrite_review=False)), 0)
+        empty = b"# Weekly Metrics Data\n"
+        self.data.write_bytes(empty)
+        self.run_command(wpr.cmd_import_xlsx, xlsx=str(self.root / "output" / "wpr-workbook.xlsx"))
+        self.assertEqual(self.data.read_bytes(), empty)
+        self.run_command(wpr.cmd_import_csv, csv=str(self.csv_input("0 so far")))
+        self.assertEqual(self.data.read_bytes(), empty)
+
     def test_invalid_last_value_does_not_partially_commit_first_value(self):
         path = self.csv_input("13")
         with path.open("a") as handle:

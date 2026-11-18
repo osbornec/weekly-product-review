@@ -89,7 +89,7 @@ Follow `references/sheet-template-spec.md` and `references/integrations.md`:
 2. **Pull manual Sheet edits (if any)**: For a live Sheet, check plugin access first using the read steps in the preflight. If the export is blocked, report the missing input and continue with local data. Use XLSX for multi-tab exports and run `scripts/wpr_sync.py import-xlsx` (or `import-csv` for single-tab CSVs).
    - Use `--dry-run` to inspect proposed changes without writing. Both imports and `add-week` preserve surrounding Markdown; no-op imports leave the file unchanged. Changed files are replaced atomically.
 3. **Prompt only for remaining manual gaps** and check data hygiene (missing manual inputs, unit mismatches, >= 20% WoW swings, Amber ETAs due).
-   - Keep an unfinished reporting interval as `Period State: preview`. After its cutoff, check coverage per metric: a closed period may contain explicit blank `unavailable` or `stale` cells alongside verified values. A failed source does not hide verified values from independent sources. Unverified observations remain blank or excluded; verified zero requires checked coverage. WoW uses exactly the adjacent weekly date; averages need four consecutive, comparable closed numeric observations for that metric.
+   - Keep an unfinished interval as `Period State: preview`. Show preview observations in the normal scorecard as display text. Keep coverage and the Doc link together and leave closed-week calculations blank for that interval. After cutoff, close with verified values and name missing sources. Leave stale or unavailable values blank. A zero at close requires verified coverage. WoW uses the adjacent weekly date and rolling averages need four consecutive, comparable closed numeric observations.
 4. **Update, rebuild, pre-draft commentary, and sync in place**:
    - Add a preview week (`scripts/wpr_sync.py add-week`), reconcile verified values, close the period when ready, run `scripts/wpr_sync.py build --active-tab-first`, and run any host workspace validator. If a dated review exists, refresh its numeric highlights from `wpr-review-draft.md`; the builder preserves its reviewed content across final exports.
    - **Pre-draft Sections 3 to 5 before syncing the Doc**: Populate real anecdotes from project records, analytics notes, support logs, or user input (never invent quotes or stats), draft concrete `Expected vs. Unexpected`, `Signal vs. Noise`, and `Splits Needed` discussion points from the numbers, and propose initial two-track actions (clearly marking unconfirmed hypotheses for review).
@@ -106,7 +106,7 @@ Guide a focused 20 to 60 minute review using the pre-drafted `wpr/reviews/YYYY-M
 4. **Lock two-track actions** (each with What, Owner, Due Date):
    - *Improve the spreadsheet* (new metric, split, comparison, or turning Amber into Ice Blue/Zinc).
    - *Change the product or workflow* (bug fix, feature change, onboarding fix, or outreach adjustment).
-5. **Save and build** the finalized review locally. For authorized Google sync, run the plugin preflight before updating the companion Doc and Sheet `Notes` row.
+5. **Save and build** the finalized review in the flat `wpr/reviews/` folder. Use `Week ending D Month YYYY` as the Markdown H1 and the native Heading 1 in the existing history Doc. Put status below it. Before every authorized Doc write or retry, read the current Doc and update only the matched section or insert in date order. Use a revision guard and verify the result by reading it back. See the [Doc procedure](references/connector-sync.md#doc-procedure).
 
 ---
 

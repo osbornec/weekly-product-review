@@ -107,9 +107,11 @@ Optional metadata directly below a week heading:
 ```markdown
 - Period State: preview
 - Comparison Group: weekly-cutoff-v1
+- Coverage: 12–16 March 2027, captured 16 March 2027 at 16:30 +01:00
+- Missing Sources: Synthetic service export
 ```
 
-- New weeks start as `preview` while their reporting interval is unfinished. After its cutoff, verify coverage per metric and set `Period State: closed` explicitly. A closed period may contain verified values alongside blank `unavailable` or `stale` cells; a failed source does not suppress independent verified metrics. Numeric preview values remain excluded from exported calculations.
+- New weeks start as `preview` while their reporting interval is unfinished. Store observed numeric values with their coverage and show them as text in the normal scorecard. The workbook and Sheets plan label the date as preview and keep calculations blank. The numeric series excludes these observations. After cutoff, mark the period `closed`, replace preview values with verified numbers or blanks, and name any missing sources. `Coverage` and `Missing Sources` feed the coverage cell and generated review. Put the Doc link in that coverage cell and use Notes for closed-week highlights.
 - Legacy weeks without `Period State` remain closed for compatibility. Mark any genuinely provisional rows explicitly.
 - `Comparison Group` identifies comparable definitions/windows. A change breaks automatic comparisons across that boundary. WoW uses exactly seven days earlier; rolling averages require four consecutive closed periods and four numeric values. Zero counts as numeric; a zero denominator has no percentage change.
 - Additional cell statuses are `preview`, `stale`, `unavailable` and `verified-zero`; the last requires numeric zero. Use blanks for unavailable values rather than text in numeric fields.
@@ -138,7 +140,7 @@ Pass `--dry-run` to any of these three commands to print a proposed diff without
 
 ## 3. `wpr/reviews/YYYY-MM-DD-wpr.md`
 
-Source of truth for the companion Google Doc (and weekly `Notes` summary). When `reviews/YYYY-MM-DD-wpr.md` already exists, `build` renders it into `wpr-review-brief.html` and `wpr-review-archive.md` (pass `--overwrite-review` to regenerate the draft from scratch). Sections:
+Keep one dated Markdown review per week in the flat `reviews/` folder and use one existing Google Doc for the history. The first line uses `# Week ending D Month YYYY`, such as `# Week ending 17 March 2027`. Use the configured week-ending date from the filename and the same text as Heading 1 in the Doc. Place `**Period State:**` below the heading and keep the heading unchanged at close. An authored review remains the source of truth for exports. `build` preserves it by default and produces a fresh draft for reconciling the selected week, including its status and source gaps. Use `--overwrite-review` only to regenerate the review from scratch. Sections:
 1. `## 1. Metric Highlights & Anomalies` (`| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |`, showing `Pending input` for blank manual metrics)
 2. `## 2. Carry-Over Actions Review`
 3. `## 3. Customer, Sales & Support Anecdotes`
@@ -155,8 +157,9 @@ Source of truth for the companion Google Doc (and weekly `Notes` summary). When 
 - `import-csv --wpr-dir wpr --csv path.csv [--dry-run]`: Pull manual metric edits from a single-tab `.csv` export.
 - `build --wpr-dir wpr --out-dir wpr-output [--active-tab-first] [--overwrite-review]`: Generate `wpr-workbook.xlsx`, `wpr-review-brief.md`, `wpr-review-brief.html`, `wpr-review-archive.md`, `sheets-payload.json`, and starter `reviews/<date>-wpr.md` (if absent).
 - `plan-sync --payload wpr-output/sheets-payload.json [--previous previous-payload.json] --date YYYY-MM-DD --out sync-plan.json`: Generate bounded date-keyed writes and separate catalog updates without network access. Inspect live dates and row layout before applying.
+- `plan-doc-sync --wpr-dir wpr --document doc-snapshot.json --date YYYY-MM-DD --out doc-plan.json`: Locate the exact Heading 1 section or its insertion point using a fresh document snapshot and revision. This is a local planning command. See the [Doc procedure](connector-sync.md#doc-procedure) for write and readback checks.
 
-`build` also writes `wpr-review-draft.md` with fresh generated highlights. The selected dated review supplies all final brief exports; reconcile its numeric tables against the draft before syncing. Add `- **Reviewed Summary:** <reviewed note and optional link>` to that dated review for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables, never arbitrary metric annotations.
+`build` also writes `wpr-review-draft.md` with fresh generated highlights. Reconcile the selected review against the draft before syncing. Add `- **Reviewed Summary:** <closed-week highlight and optional evidence link>` for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables. Preview text and coverage belong in the coverage cell. WPR-generated preview strings are ignored by CSV and XLSX import.
 
 Write relative evidence links relative to the dated review file. Exports rebase those links to their output folder, including the numeric draft, archive and workbook Notes, without changing the review source. Keep the output on the same drive for portable local links. Web/mail links, fragments and links written as code retain their original text. HTML renders relative links and HTTP(S)/mail links; `file://` URLs are not rendered as clickable links. For a native cloud report, use accessible web evidence URLs rather than assuming local files are available remotely.
 
