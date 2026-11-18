@@ -36,6 +36,30 @@ class ImportValidationTests(unittest.TestCase):
         errors, _ = wpr.validate_wpr(self.root)
         self.assertTrue(any("does not end on Friday" in error for error in errors))
 
+    def test_validator_groups_missing_preview_inputs_and_closed_source_gaps(self):
+        table = """# Weekly Metrics Data
+
+## Week 2027-01-08
+- Period State: {state}
+
+| ID | Metric | Value | Status | Note | Gap Reason |
+| --- | --- | --- | --- | --- | --- |
+| shipments | Shipments | | {status} | | {reason} |
+| latency | Latency | | {status} | | {reason} |
+"""
+        for state, status, reason, label in (
+            ("preview", "manual", "", "Reporting period is open"),
+            ("closed", "unavailable", "Missing comparable baseline", "Missing comparable baseline"),
+            ("closed", "stale", "", "Stale source"),
+            ("closed", "manual", "", "Pending manual input"),
+        ):
+            with self.subTest(state=state, status=status, reason=reason):
+                self.data.write_text(table.format(state=state, status=status, reason=reason), encoding="utf-8")
+                errors, warnings = wpr.validate_wpr(self.root)
+                self.assertEqual(errors, [])
+                newest = [warning for warning in warnings if warning.startswith("Newest week")]
+                self.assertEqual(newest, [f"Newest week 2027-01-08: {label} (shipments, latency)."])
+
     def test_unknown_csv_label_is_reported_and_noop(self):
         output = self.run_command(wpr.cmd_import_csv, csv=str(self.csv_input("13", label="Unknown measure")))
         self.assertIn("unmatched_rows: 1", output)

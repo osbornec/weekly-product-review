@@ -115,6 +115,7 @@ Optional metadata directly below a week heading:
 - Legacy weeks without `Period State` remain closed for compatibility. Mark any genuinely provisional rows explicitly.
 - `Comparison Group` identifies comparable definitions/windows. A change breaks automatic comparisons across that boundary. WoW uses exactly seven days earlier; rolling averages require four consecutive closed periods and four numeric values. Zero counts as numeric; a zero denominator has no percentage change.
 - Additional cell statuses are `preview`, `stale`, `unavailable` and `verified-zero`; the last requires numeric zero. Use blanks for unavailable values rather than text in numeric fields.
+- Optional metric columns `Capture / Coverage` and `Gap Reason` carry source-specific evidence into the generated review. Use the actual capture time with its offset and the source window or its coverage end. For a known gap, use a short reason such as `Missing comparable baseline`. Validation groups newest-week gaps by reason, including unfinished preview inputs, stale or unavailable sources, and pending manual inputs.
 
 You can keep preview observations, source notes and links around the weekly tables. `add-week`, `import-csv` and `import-xlsx` preserve that content, existing cell notes, uncatalogued rows and extra table columns. Imports patch changed cells; a no-op leaves the file byte-for-byte unchanged, including its UTF-8 BOM and line endings. Changed files use a flushed temporary file in the same directory and atomic replacement. Duplicate weeks or duplicate metric rows are rejected before writing to avoid ambiguous updates.
 
@@ -141,7 +142,7 @@ Pass `--dry-run` to any of these three commands to print a proposed diff without
 ## 3. `wpr/reviews/YYYY-MM-DD-wpr.md`
 
 Keep one dated Markdown review per week in the flat `reviews/` folder and use one existing Google Doc for the history. The first line uses `# Week ending D Month YYYY`, such as `# Week ending 17 March 2027`. Use the configured week-ending date from the filename and the same text as Heading 1 in the Doc. Place `**Period State:**` below the heading and keep the heading unchanged at close. An authored review remains the source of truth for exports. `build` preserves it by default and produces a fresh draft for reconciling the selected week, including its status and source gaps. Use `--overwrite-review` only to regenerate the review from scratch. Sections:
-1. `## 1. Metric Highlights & Anomalies` (`| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |`, showing `Pending input` for blank manual metrics)
+1. `## 1. Metric Highlights & Anomalies` (current result, comparisons, target, signal and per-metric capture / coverage). Show a known source gap beside the result, and use `Pending input` for ordinary blank manual metrics.
 2. `## 2. Carry-Over Actions Review`
 3. `## 3. Customer, Sales & Support Anecdotes`
 4. `## 4. Discussion & Root-Cause Notes`

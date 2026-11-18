@@ -1,8 +1,11 @@
 import copy
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
+
+from test_metrics_writes import wpr
 
 ROOT = Path(__file__).resolve().parents[1] / "skills" / "weekly-product-review" / "examples" / "creator-wpr"
 SPEC = importlib.util.spec_from_file_location("synthetic_collector", ROOT / "collect_wpr.py")
@@ -66,3 +69,40 @@ class CollectorTests(unittest.TestCase):
         capture["events"] = [{"at": capture["period_start_exclusive"], "kind": "attempt"},
                              {"at": capture["period_end_inclusive"], "kind": "attempt"}]
         self.assertEqual(self.records(capture, "2027-04-02T17:15:00+02:00")["attempts"]["value"], 1)
+
+    def partial_close(self):
+        capture = json.loads((ROOT / "capture.partial-close.example.json").read_text(encoding="utf-8"))
+        return collector.collect(capture, capture["captured_at"])
+
+    def test_partial_close_matches_ledger_and_report_with_per_metric_coverage(self):
+        records = {r["metric_id"]: r for r in self.partial_close()["records"]}
+        cfg = wpr.load_config(ROOT / "wpr-config.md")
+        week = next(w for w in wpr.load_metrics_data(ROOT / "metrics-data.md")
+                    if w.week_date.isoformat() == "2027-02-05")
+        closed = wpr.evaluate_metric_series(cfg, [week])
+        expected = {"weekly_reach": ("verified", 250), "outcomes": ("verified-zero", 0),
+                    "weekly_visitors": ("stale", None), "article_growth": ("unavailable", None)}
+        for mid, (state, value) in expected.items():
+            with self.subTest(metric=mid):
+                self.assertEqual((records[mid]["state"], records[mid]["value"]), (state, value))
+                self.assertEqual(closed[week.week_date, mid], value)
+        self.assertEqual(records["weekly_visitors"]["observed"], 18)
+        self.assertTrue(records["weekly_visitors"]["coverage_through"].startswith("2027-02-04"))
+        self.assertEqual(records["article_growth"]["reason"], "Missing comparable baseline")
+        with tempfile.TemporaryDirectory() as tmp:
+            brief, rendered = wpr.generate_review_brief(cfg, [week], closed, Path(tmp))
+        self.assertIn("Missing Sources", brief)
+        self.assertIn("Missing comparable baseline", rendered)
+        visitor = next(line for line in brief.splitlines() if "| Weekly Account Visitors |" in line)
+        self.assertIn("| Stale source | 5 Feb 17:08 +01:00, through 4 Feb 17:00 |", visitor)
+
+    def test_similar_dashboard_labels_and_repeat_reads_stay_separate(self):
+        result = self.partial_close()
+        impressions = [o for o in result["observations"] if o["source_label"] == "Impressions"]
+        self.assertEqual([(o["window"], o["value"]) for o in impressions],
+                         [("rolling-seven-days", 214), ("since-publication", 225), ("rolling-seven-days", 218)])
+        self.assertEqual(len({o["captured_at"] for o in impressions}), 3)
+        self.assertNotEqual(impressions[0]["period_start_exclusive"], impressions[1]["period_start_exclusive"])
+        self.assertEqual({o["scope"] for o in result["observations"] if o["source_label"] == "Profile viewers"},
+                         {"account", "post-a-attributed"})
+        self.assertTrue(all(r["value"] not in {214, 218, 225} for r in result["records"]))

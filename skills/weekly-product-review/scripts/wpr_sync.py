@@ -155,6 +155,8 @@ class WeekCell:
     value_num: Optional[float]
     status: str
     note: str
+    capture_coverage: str = ""
+    gap_reason: str = ""
 
 
 @dataclass
@@ -348,6 +350,8 @@ def load_metrics_data(path: Path) -> List[WeekEntry]:
                     value_num=parse_number(vraw),
                     status=row.get("Status", "").strip().lower(),
                     note=row.get("Note", "").strip(),
+                    capture_coverage=row.get("Capture / Coverage", "").strip(),
+                    gap_reason=row.get("Gap Reason", "").strip(),
                 )
             entries.append(entry)
             i = j
@@ -360,21 +364,33 @@ def load_metrics_data(path: Path) -> List[WeekEntry]:
 
 def _metric_cell_fields(cell: WeekCell) -> Dict[str, str]:
     return {"ID": cell.metric_id, "Metric": cell.metric_name, "Value": cell.value_raw,
-            "Status": cell.status, "Note": cell.note}
+            "Status": cell.status, "Note": cell.note, "Capture / Coverage": cell.capture_coverage,
+            "Gap Reason": cell.gap_reason}
 
 
 def _metric_table(entry: WeekEntry, cfg: WPRConfig, newline: str) -> str:
-    lines = ["| ID | Metric | Value | Status | Note |",
-             "| :--- | :--- | :--- | :--- | :--- |"]
     cells = dict(entry.cells)
+    headers = ["ID", "Metric", "Value", "Status", "Note"]
+    if any(cell.capture_coverage for cell in cells.values()):
+        headers.append("Capture / Coverage")
+    if any(cell.gap_reason for cell in cells.values()):
+        headers.append("Gap Reason")
+
+    def table_row(values):
+        return "| " + " | ".join(values) + " |"
+
+    def cell_row(cell):
+        fields = _metric_cell_fields(cell)
+        return table_row(fields[header] for header in headers)
+
+    lines = [table_row(headers), table_row([":---"] * len(headers))]
     for mdef in cfg.metrics:
         cell = cells.pop(mdef.metric_id, None)
         if cell is None:
             cell = WeekCell(mdef.metric_id, mdef.name, "", None, mdef.mtype,
                             mdef.source_eta if mdef.mtype == "not-collected" else "")
-        lines.append("| " + " | ".join(_metric_cell_fields(cell).values()) + " |")
-    for cell in cells.values():
-        lines.append("| " + " | ".join(_metric_cell_fields(cell).values()) + " |")
+        lines.append(cell_row(cell))
+    lines.extend(cell_row(cell) for cell in cells.values())
     return newline.join(lines) + newline + newline
 
 
@@ -600,10 +616,29 @@ def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
             warnings.append("metrics-data.md has no week entries yet.")
         else:
             newest = entries[0]
+            gaps: Dict[str, List[str]] = {}
             for m in cfg.metrics:
                 c = newest.cells.get(m.metric_id)
-                if m.mtype == "manual" and (not c or not c.value_raw):
-                    warnings.append(f"Newest week {newest.week_date}: manual metric '{m.metric_id}' is blank.")
+                state = c.status if c else ""
+                if c and c.value_raw and state not in {"preview", "stale", "unavailable"}:
+                    continue
+                if c and c.gap_reason:
+                    reason = c.gap_reason
+                elif state == "stale":
+                    reason = "Stale source"
+                elif state == "unavailable":
+                    reason = "Source unavailable"
+                elif newest.period_state == "preview" and m.mtype in {"manual", "automated"}:
+                    reason = "Reporting period is open"
+                elif state == "preview":
+                    reason = "Preview awaits verification"
+                elif m.mtype == "manual":
+                    reason = "Pending manual input"
+                else:
+                    continue
+                gaps.setdefault(reason, []).append(m.metric_id)
+            for reason, metrics in gaps.items():
+                warnings.append(f"Newest week {newest.week_date}: {reason} ({', '.join(metrics)}).")
     else:
         warnings.append("metrics-data.md does not exist yet.")
 
@@ -1477,8 +1512,8 @@ def generate_review_brief(
     md_lines.extend([
         "",
         "## 1. Metric Highlights & Anomalies",
-        "| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |",
-        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
+        "| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal | Capture / Coverage |",
+        "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- | :--- |",
     ])
 
     anomalies: List[str] = []
@@ -1505,7 +1540,14 @@ def generate_review_brief(
         elif m.mtype == "not-collected":
             signal = m.source_eta or "Planned"
         elif cur is None:
-            signal = "Pending input" if m.mtype == "manual" else "Unavailable"
+            if observed and observed.gap_reason:
+                signal = observed.gap_reason
+            elif observed and observed.status == "stale":
+                signal = "Stale source"
+            elif observed and observed.status == "unavailable":
+                signal = "Unavailable"
+            else:
+                signal = "Pending input" if m.mtype == "manual" else "Unavailable"
         elif tnum is not None and cur is not None:
             signal = "Below target" if cur < tnum else "At/above target"
         else:
@@ -1518,10 +1560,11 @@ def generate_review_brief(
             )
 
         target_disp = format_val(tnum, m.fmt, dash) if tnum is not None else (traw or dash)
+        capture_coverage = observed.capture_coverage if observed else ""
         md_lines.append(
             f"| {m.section} | {m.name} | {display} | {format_val(prv, m.fmt, dash)} | "
             f"{wow_str} | {format_val(avg4, 'float' if m.fmt == 'int' else m.fmt, dash)} | "
-            f"{target_disp} | {signal} |"
+            f"{target_disp} | {signal} | {capture_coverage} |"
         )
 
     if anomalies:
@@ -1677,12 +1720,13 @@ def render_brief_html(title: str, md_text: str) -> str:
             cells = _markdown_cells(line)
             if not in_table:
                 in_table = True
+                signal_column = cells.index("Signal") if "Signal" in cells else len(cells) - 1
                 html_parts.append("<table><thead><tr>" + "".join(f"<th>{_render_inline(c)}</th>" for c in cells) + "</tr></thead><tbody>")
             else:
                 tds = []
                 for idx_c, c in enumerate(cells):
                     esc = _render_inline(c)
-                    if idx_c == len(cells) - 1 and c:
+                    if idx_c == signal_column and c:
                         low_c = c.lower()
                         if "above target" in low_c:
                             esc = f"<span class='badge b-ok'>{esc}</span>"
@@ -2054,6 +2098,7 @@ def _reconcile_rows_into_entries(
                     value_num=parse_number(val_raw),
                     status="manual",
                     note=existing.note if existing else "",
+                    capture_coverage=existing.capture_coverage if existing else "",
                 )
                 updated += 1
     return updated

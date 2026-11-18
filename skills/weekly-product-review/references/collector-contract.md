@@ -26,6 +26,19 @@ Use this contract when building a project-specific collector. See [the synthetic
 - Keep typed item rows separately: original post, article promotion and repost. Weekly item impressions and lifetime profile activity need distinct labels and windows. Item-level totals may overlap and must not replace an account-wide count.
 - Record historical baselines with their own windows and source definitions. Never insert nonmatching historical windows into the Friday series merely to obtain four observations.
 
+## Worked partial close and source windows
+
+The [partial-close fixture](../examples/creator-wpr/capture.partial-close.example.json) closes the interval with mixed source coverage. Reconcile each source independently. Copy actual capture time and coverage into the matching metric row and name source gaps for the week.
+
+| Metric | Close result | Capture and coverage |
+| --- | --- | --- |
+| Weekly Account Reach | 250 verified | 5 Feb 17:06 +01:00, covers cutoff at 17:00 |
+| Outcomes Accepted | 0 verified | 5 Feb 17:10 +01:00, covers cutoff at 17:00 |
+| Weekly Account Visitors | Blank, stale source | Checked 5 Feb 17:08 +01:00, coverage stops 4 Feb at 17:00 |
+| Article Views Added | Blank, missing comparable baseline | Checked 5 Feb 17:10 +01:00. Closing counter is 118 at 17:00 |
+
+The same fixture keeps separate item observations even when the source label is `Impressions`. The rolling-seven-day dashboard reports 214 at 17:03 and 218 at 17:09 with a partial final day. The detail view reports 225 since publication at 17:04. Retain each read's label, source, scope, window and capture time. Treat the changed count as a later observation of that window. Keep account profile viewers separate from post-attributed viewers. The collector returns these observations as evidence apart from the weekly candidates.
+
 ## Retry and close workflow
 
 ```mermaid

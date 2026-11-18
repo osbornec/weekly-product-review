@@ -70,7 +70,7 @@ class ReportingTests(unittest.TestCase):
             markdown, _ = wpr.generate_review_brief(cfg, [current], values, Path(temp))
         rows = [line for line in markdown.splitlines() if line.startswith(("| Operations | Units |", "| Operations | Rate |"))]
         self.assertEqual(len(rows), 2)
-        self.assertTrue(all(line.endswith("| Unavailable |") for line in rows))
+        self.assertTrue(all(wpr._markdown_cells(line)[7] == "Unavailable" for line in rows))
         self.assertNotIn("On track", markdown)
 
     def test_changed_comparison_group_breaks_comparability(self):

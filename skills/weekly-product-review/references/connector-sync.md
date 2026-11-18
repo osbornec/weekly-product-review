@@ -22,8 +22,17 @@ Omit `--previous` for the first sync. Save the successfully verified Sheet paylo
 Run this check in the agent session before any authorized Google sync. The Python commands build local outputs independently of the plugin. If the run is local-only, skip this check and build from local inputs.
 
 1. Check that the Google Drive plugin is available in the current session. For each requested destination, confirm it offers the required native read and update tools. Use the project's configured Sheet and Doc IDs or URLs. A missing target is unconfigured. First-time creation requires an explicit setup request and the appropriate create tool.
-2. Make a read-only call through the plugin to each exact target. Read Sheet metadata and the relevant date headers or read the Doc structure and revision. Use those results in the procedures below. For edit access in Codex, request `capabilities(canEdit)` through the plugin's `get_file_metadata` tool for each target. A successful content read confirms read access only. If edit access cannot be established, report it as unconfirmed and keep that destination pending.
+2. Make a read-only call through the plugin to each exact target. Read Sheet metadata and the relevant date headers or read the Doc structure and revision. For edit access in Codex, request `capabilities(canEdit)` through the plugin's `get_file_metadata` tool. Interpret the evidence per destination using the table below.
 3. If the plugin is missing, disconnected, missing a required tool, or returns an access error, leave the affected destination pending and report the specific blocker. Complete validation and the local build using available inputs. Continue an authorized sync for any other destination that passed. Keep configured IDs intact. A substitute connector or replacement file requires a separate user choice.
+
+| Edit evidence on the exact target | Decision |
+| --- | --- |
+| `canEdit: true` | Proceed with the authorized scoped write and verify by readback. |
+| `canEdit: false` or an explicit permission denial | Keep this destination blocked. Ownership, sharing flags and successful reads do not override a denial. |
+| `canEdit` omitted | Try a broader metadata or permissions read. Accept a confirmed owner or editor role for the authenticated identity on that file. An owner listed without a match to the connected identity, sharing capability alone, and a successful content read are insufficient. |
+| Evidence still unavailable or contradictory | Report edit access as unconfirmed and keep this destination pending. |
+
+Record the evidence used for each destination separately. In a synthetic example, a Sheet response omits `canEdit` but the broader read confirms the connected account owns the Sheet. That Sheet can proceed. If the Doc reports `canEdit: false`, keep the Doc blocked and continue the local build. Any denial returned by the actual write supersedes preflight evidence.
 
 Report the local output folder and separate results for the Sheet and Doc. For example, “Local build complete. Sheet sync blocked because edit access was denied. Doc updated and verified.” If a live Sheet export was unavailable, also report that any unimported manual edits are absent from the local build.
 

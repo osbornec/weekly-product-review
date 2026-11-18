@@ -9,9 +9,9 @@
 - **Reviewed Summary:** <closed-week highlight for Sheet Notes, with an evidence link if useful>
 
 ## 1. Metric Highlights & Anomalies
-| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal |
-| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
-| | | | | | | | |
+| Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal | Capture / Coverage |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- | :--- |
+| | | | | | | | | <capture time with offset and actual source window or coverage end> |
 
 ## 2. Carry-Over Actions Review
 | Action | Owner | Due | Status | Update |

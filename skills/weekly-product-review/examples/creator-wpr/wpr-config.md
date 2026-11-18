@@ -7,6 +7,7 @@
 - **Meeting Cadence**: Friday after the reporting cutoff
 - **Owners / Attendees**: Editorial team
 - **Style**: no-em-dash
+- **Google Doc URL**: https://example.test/creator-review
 
 ## Product Machine Map
 - **Customer Journey**: Publish useful tutorials -> Readers visit -> Meaningful responses -> Meetings -> Confirmed outcomes

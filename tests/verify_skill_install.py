@@ -25,6 +25,7 @@ RUNTIME_FILES = {
     "assets/templates/metrics-data.template.md", "assets/templates/weekly-review.template.md",
     "assets/templates/wpr-config.template.md",
     "examples/creator-wpr/README.md", "examples/creator-wpr/capture.example.json",
+    "examples/creator-wpr/capture.partial-close.example.json",
     "examples/creator-wpr/collect_wpr.py", "examples/creator-wpr/metrics-data.md",
     "examples/creator-wpr/wpr-config.md",
 }

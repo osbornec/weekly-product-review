@@ -1,0 +1,55 @@
+{
+  "period_start_exclusive": "2027-01-29T17:00:00+01:00",
+  "period_end_inclusive": "2027-02-05T17:00:00+01:00",
+  "captured_at": "2027-02-05T17:10:00+01:00",
+  "coverage_through": "2027-02-05T17:00:00+01:00",
+  "time_zone": "Europe/Berlin",
+  "comparison_group": "weekly-cutoff-v1",
+  "account": {
+    "weekly_reach": {
+      "value": 250,
+      "source": "Synthetic account reach export",
+      "source_label": "Accounts reached",
+      "period_start_exclusive": "2027-01-29T17:00:00+01:00",
+      "period_end_inclusive": "2027-02-05T17:00:00+01:00",
+      "captured_at": "2027-02-05T17:06:00+01:00",
+      "coverage_through": "2027-02-05T17:00:00+01:00"
+    },
+    "weekly_visitors": {
+      "value": 18,
+      "source": "Synthetic visitor feed",
+      "source_label": "Account visitors",
+      "period_start_exclusive": "2027-01-29T17:00:00+01:00",
+      "period_end_inclusive": "2027-02-05T17:00:00+01:00",
+      "captured_at": "2027-02-05T17:08:00+01:00",
+      "coverage_through": "2027-02-04T17:00:00+01:00"
+    }
+  },
+  "article_counter": {
+    "item_id": "tutorial-a",
+    "current": 118,
+    "current_at": "2027-02-05T17:00:00+01:00",
+    "source": "Synthetic article analytics",
+    "source_label": "Article views added"
+  },
+  "events": [
+    {"at": "2027-02-01T10:00:00+01:00", "kind": "publish-original"},
+    {"at": "2027-02-01T12:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-02T12:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-03T12:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-04T12:00:00+01:00", "kind": "attempt"},
+    {"at": "2027-02-04T14:00:00+01:00", "kind": "substantive-response", "person_id": "person-a"}
+  ],
+  "observations": [
+    {"source": "Synthetic post dashboard", "source_label": "Impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 214,
+     "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:03:00+01:00", "partial_day": true},
+    {"source": "Synthetic post detail", "source_label": "Impressions", "scope": "post-a", "window": "since-publication", "value": 225,
+     "period_start_exclusive": "2027-01-27T09:00:00+01:00", "period_end_inclusive": "2027-02-05T17:04:00+01:00", "captured_at": "2027-02-05T17:04:00+01:00"},
+    {"source": "Synthetic post dashboard", "source_label": "Impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 218,
+     "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:09:00+01:00", "partial_day": true},
+    {"source": "Synthetic account dashboard", "source_label": "Profile viewers", "scope": "account", "window": "reporting-week", "value": 18,
+     "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:08:00+01:00"},
+    {"source": "Synthetic post detail", "source_label": "Profile viewers", "scope": "post-a-attributed", "window": "since-publication", "value": 7,
+     "period_start_exclusive": "2027-01-27T09:00:00+01:00", "period_end_inclusive": "2027-02-05T17:04:00+01:00", "captured_at": "2027-02-05T17:04:00+01:00"}
+  ]
+}

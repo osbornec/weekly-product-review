@@ -12,18 +12,26 @@ def stamp(raw):
     return value
 
 
+def source_timing(capture, source, as_of):
+    captured_at = source.get("captured_at", capture["captured_at"])
+    coverage_through = source.get("coverage_through", capture["coverage_through"])
+    captured, coverage = stamp(captured_at), stamp(coverage_through)
+    if captured > as_of or coverage > captured:
+        raise ValueError("Capture cannot follow the observation time and coverage cannot follow capture")
+    return captured_at, coverage_through
+
+
 def collect(capture, as_of):
     start, end = stamp(capture["period_start_exclusive"]), stamp(capture["period_end_inclusive"])
     if end <= start:
         raise ValueError("The period must end after it starts")
-    captured, coverage = stamp(capture["captured_at"]), stamp(capture["coverage_through"])
     as_of = stamp(as_of)
-    if captured > as_of or coverage > captured:
-        raise ValueError("Capture and coverage timestamps cannot postdate the observation time")
-    closed = as_of >= end and captured >= end and coverage >= end
-    state = "unavailable" if not capture.get("available", True) else ("stale" if coverage < end and as_of >= end else ("verified" if closed else "preview"))
+    _, event_coverage = source_timing(capture, {}, as_of)
+    event_cutoff = min(end, stamp(event_coverage))
+
     def in_period(event):
-        return start < stamp(event["at"]) <= min(end, captured)
+        return start < stamp(event["at"]) <= event_cutoff
+
     events = [event for event in capture.get("events", []) if in_period(event)]
     counts = {
         "pieces": sum(e["kind"] == "publish-original" for e in events),
@@ -32,25 +40,62 @@ def collect(capture, as_of):
         "meetings": len({e["meeting_id"] for e in events if e["kind"] == "meeting-confirmed"}),
         "outcomes": len({e["outcome_id"] for e in events if e["kind"] == "outcome-accepted"}),
     }
+    sources, reasons = {}, {}
     for mid in ("weekly_reach", "weekly_visitors"):
         observation = capture.get("account", {}).get(mid)
-        counts[mid] = observation["value"] if observation and observation["period_start_exclusive"] == capture["period_start_exclusive"] and observation["period_end_inclusive"] == capture["period_end_inclusive"] else None
+        if observation:
+            sources[mid] = observation
+        matches = (observation and stamp(observation["period_start_exclusive"]) == start
+                   and stamp(observation["period_end_inclusive"]) == end)
+        counts[mid] = observation["value"] if matches else None
+        reasons[mid] = "Source window does not match" if observation and not matches else "Source unavailable"
     article = capture.get("article_counter", {})
+    sources["article_growth"] = article
+    prior, current = article.get("prior"), article.get("current")
     counts["article_growth"] = None
-    if article.get("prior_at") == capture["period_start_exclusive"] and article.get("current_at") == capture["period_end_inclusive"] and stamp(article["current_at"]) <= captured:
-        prior, current = article.get("prior"), article.get("current")
-        if prior is not None and current is not None and current >= prior:
-            counts["article_growth"] = current - prior
+    if current is None or not article.get("current_at"):
+        reasons["article_growth"] = "Source unavailable"
+    elif stamp(article["current_at"]) != end or stamp(article["current_at"]) > stamp(article.get("captured_at", capture["captured_at"])):
+        reasons["article_growth"] = "Source window does not match"
+    elif prior is None or not article.get("prior_at") or stamp(article["prior_at"]) != start:
+        reasons["article_growth"] = "Missing comparable baseline"
+    elif current < prior:
+        reasons["article_growth"] = "Counter decreased; review needed"
+    else:
+        counts["article_growth"] = current - prior
     records = []
     for mid, observed in counts.items():
-        numeric = observed if state == "verified" else None
-        metric_state = "unavailable" if observed is None else ("verified-zero" if state == "verified" and observed == 0 else state)
-        records.append({"metric_id": mid, "value": numeric, "observed": observed, "state": metric_state,
-                        "unit": "count", "scope": "tracked-article" if mid == "article_growth" else ("account" if mid.startswith("weekly_") else "dated-events"),
-                        "source": "synthetic capture", "source_label": mid,
-                        "reason": "" if metric_state in {"verified", "verified-zero"} else ("Missing comparable source window or counter snapshots" if observed is None else {"preview": "Reporting period is open", "stale": "Source coverage ends before the cutoff", "unavailable": "Source access unavailable"}[state])})
+        source = sources.get(mid, {})
+        captured_at, coverage_through = source_timing(capture, source, as_of)
+        if not capture.get("available", True) or not source.get("available", True):
+            state, reason = "unavailable", "Source unavailable"
+        elif observed is None:
+            state, reason = "unavailable", reasons[mid]
+        elif as_of < end:
+            state, reason = "preview", "Reporting period is open"
+        elif stamp(coverage_through) < end:
+            state, reason = "stale", "Source coverage ends before the cutoff"
+        else:
+            state, reason = ("verified-zero" if observed == 0 else "verified"), ""
+        if mid == "article_growth":
+            scope, default_source = "tracked-article", "Synthetic article analytics"
+        elif mid.startswith("weekly_"):
+            scope, default_source = "account", "Synthetic account dashboard"
+        else:
+            scope, default_source = "dated-events", "Synthetic activity log"
+        records.append({"metric_id": mid, "value": observed if state in {"verified", "verified-zero"} else None,
+                        "observed": observed, "state": state, "unit": "count", "scope": scope,
+                        "source": source.get("source", default_source),
+                        "source_label": source.get("source_label", mid), "reason": reason,
+                        "period_start_exclusive": source.get("period_start_exclusive", capture["period_start_exclusive"]),
+                        "period_end_inclusive": source.get("period_end_inclusive", capture["period_end_inclusive"]),
+                        "captured_at": captured_at, "coverage_through": coverage_through})
     result = {key: capture[key] for key in ("period_start_exclusive", "period_end_inclusive", "captured_at", "coverage_through", "time_zone", "comparison_group")}
-    result.update(records=records, writes_history=False)
+    observations = capture.get("observations", [])
+    for observation in observations:
+        if stamp(observation["captured_at"]) > as_of:
+            raise ValueError("A source observation cannot be later than the observation time")
+    result.update(records=records, observations=observations, writes_history=False)
     return result
 
 
