@@ -38,7 +38,7 @@ The installable boundary is `skills/weekly-product-review/`. Development tests, 
 Run `python -B tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/install-verification.json` from a clean checkout. The check uses an existing CLI, disables telemetry and installs from a temporary copy of Git-visible files. Synthetic markers exercise the package boundary.
 
 - Skills CLI 1.9.0 discovered and installed one Skill with the unchanged name `weekly-product-review`.
-- The installed manifest contains exactly 18 runtime files. Byte hashes match the source; no tests, promotional images, development reports or local markers are installed.
-- All relative package links and the entrypoint's resource paths resolve inside the installed Skill.
+- The installed manifest contains 19 runtime files. Byte hashes match the source. The package excludes tests, promotional images, development reports and local markers.
+- All 29 package links and entrypoint resource checks passed inside the installed Skill.
 - From a separate project directory, the installed collector returns eight expected synthetic candidates; creator validation/build, template scaffolding, CSV import, manual validation/build, XLSX round trip, date-keyed sync planning, add-week dry run and add-week pass.
 - Each build produces the six expected outputs. Dry runs preserve source bytes, and the installed files remain unchanged after the workflows.
