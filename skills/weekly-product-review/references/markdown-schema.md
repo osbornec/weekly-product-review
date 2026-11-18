@@ -109,7 +109,7 @@ Optional metadata directly below a week heading:
 - Comparison Group: weekly-cutoff-v1
 ```
 
-- New weeks start as `preview`. After checking the reporting cutoff, complete source coverage and values, set `Period State: closed` explicitly. Numeric preview values are excluded from exported calculations.
+- New weeks start as `preview` while their reporting interval is unfinished. After its cutoff, verify coverage per metric and set `Period State: closed` explicitly. A closed period may contain verified values alongside blank `unavailable` or `stale` cells; a failed source does not suppress independent verified metrics. Numeric preview values remain excluded from exported calculations.
 - Legacy weeks without `Period State` remain closed for compatibility. Mark any genuinely provisional rows explicitly.
 - `Comparison Group` identifies comparable definitions/windows. A change breaks automatic comparisons across that boundary. WoW uses exactly seven days earlier; rolling averages require four consecutive closed periods and four numeric values. Zero counts as numeric; a zero denominator has no percentage change.
 - Additional cell statuses are `preview`, `stale`, `unavailable` and `verified-zero`; the last requires numeric zero. Use blanks for unavailable values rather than text in numeric fields.
@@ -157,5 +157,9 @@ Source of truth for the companion Google Doc (and weekly `Notes` summary). When 
 - `plan-sync --payload wpr-output/sheets-payload.json [--previous previous-payload.json] --date YYYY-MM-DD --out sync-plan.json`: Generate bounded date-keyed writes and separate catalog updates without network access. Inspect live dates and row layout before applying.
 
 `build` also writes `wpr-review-draft.md` with fresh generated highlights. The selected dated review supplies all final brief exports; reconcile its numeric tables against the draft before syncing. Add `- **Reviewed Summary:** <reviewed note and optional link>` to that dated review for Sheet Notes. If omitted, Notes use up to two actions from its Decisions tables, never arbitrary metric annotations.
+
+Write relative evidence links relative to the dated review file. Exports rebase those links to their output folder, including the numeric draft, archive and workbook Notes, without changing the review source. Keep the output on the same drive for portable local links. Web/mail links, fragments and links written as code retain their original text. HTML renders relative links and HTTP(S)/mail links; `file://` URLs are not rendered as clickable links. For a native cloud report, use accessible web evidence URLs rather than assuming local files are available remotely.
+
+HTML exports have inline styles and use locally available Inter or system fonts; they do not automatically load remote fonts or scripts. Evidence links open only when followed.
 
 Generated workbooks persist numeric date caches beside formulas and include a hidden `Metric ID` column. XLSX imports use those stable identities, accept valid zero, validate all candidate values before saving, and report unmatched rows and uncomputed headers with counts and reasons. Display-label changes do not change metric identity.

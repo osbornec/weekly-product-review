@@ -46,6 +46,33 @@ class ReportingTests(unittest.TestCase):
                 self.assertEqual(self.stats(rows), (None, None, None))
         self.assertEqual(self.stats([entry("2027-02-12", 40, state="preview"), entry("2027-02-05", 20)])[1:], (None, None))
 
+    def test_closed_period_keeps_verified_zero_beside_unavailable_metric(self):
+        cfg = wpr.WPRConfig(metrics=[metric(), metric("latency")])
+        current = entry("2027-02-12", 0, status="verified-zero")
+        current.cells["latency"] = wpr.WeekCell("latency", "Latency", "", None, "unavailable", "Source offline")
+        values = wpr.evaluate_metric_series(cfg, [current])
+        self.assertEqual(values[current.week_date, "units"], 0)
+        self.assertIsNone(values[current.week_date, "latency"])
+        dates = wpr.dates_for_year(2027, "Friday")[1]
+        grid, rows = wpr.build_sheet_grid(cfg, "Q1 27", dates, {current.week_date: current}, None, None, None, None, [], {})
+        column = dates.index(current.week_date) + 2
+        self.assertEqual(grid[rows["units"] - 1][column]["v"], 0)
+        self.assertIsNone(grid[rows["latency"] - 1][column]["v"])
+
+    def test_missing_automated_and_calculated_values_never_signal_on_track(self):
+        automated = metric()
+        automated.mtype = "automated"
+        automated.target_raw = "10"
+        cfg = wpr.WPRConfig(metrics=[automated, metric("rate", formula="ratio:units/units")])
+        current = entry("2027-02-12", None, status="unavailable")
+        values = wpr.evaluate_metric_series(cfg, [current])
+        with tempfile.TemporaryDirectory() as temp:
+            markdown, _ = wpr.generate_review_brief(cfg, [current], values, Path(temp))
+        rows = [line for line in markdown.splitlines() if line.startswith(("| Operations | Units |", "| Operations | Rate |"))]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(line.endswith("| Unavailable |") for line in rows))
+        self.assertNotIn("On track", markdown)
+
     def test_changed_comparison_group_breaks_comparability(self):
         rows = [entry("2027-02-12", 40, group="new-window"), entry("2027-02-05", 20, group="old-window")]
         self.assertEqual(self.stats(rows), (None, None, None))

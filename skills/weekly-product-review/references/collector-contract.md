@@ -17,7 +17,7 @@ Use this contract when building a project-specific collector. See [the synthetic
 ## State rules
 
 - A numeric zero requires checked coverage for the whole interval. Missing access, incomplete coverage and no returned rows do not establish zero.
-- Keep open-period observations outside the closed weekly series. New weeks created by `add-week` have `Period State: preview`; change this to `closed` after the cutoff and evidence checks.
+- Keep observations from an unfinished interval outside the closed weekly series. New weeks created by `add-week` have `Period State: preview`. After the cutoff, check each metric's evidence and mark the period `closed`: verified values may coexist with blank `unavailable` or `stale` cells. Missing access to one source does not make an independent, fully covered observation provisional. Never close a still-open interval or admit an unverified numeric value merely to display it.
 - Legacy week tables without a period-state line are treated as closed for compatibility. Migrate genuinely provisional historical rows explicitly.
 - Cell statuses `preview`, `unavailable` and `stale` do not contribute to calculations. `verified-zero` requires numeric zero. Keep the collection origin (`manual` or `automated`) in the source record.
 - Stage candidate values without overwriting verified history. A failed recapture changes the capture log, not a previously verified weekly value. Corrections need a dated restatement and supporting evidence.
@@ -30,9 +30,9 @@ Use this contract when building a project-specific collector. See [the synthetic
 ```mermaid
 flowchart LR
     A[Collect dated evidence] --> B[Stage candidate values]
-    B --> C{Cutoff and coverage verified?}
-    C -->|No| D[Log preview or failure; preserve history]
-    C -->|Yes| E[Reconcile and close Markdown period]
+    B --> C{Reporting cutoff passed?}
+    C -->|No| D[Log preview; preserve history]
+    C -->|Yes| E[Close interval; reconcile verified metrics and mark gaps blank]
     E --> F[Validate and build]
     F --> G[Sync each destination and read back]
     G --> H[Record destination status]

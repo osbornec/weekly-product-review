@@ -2,7 +2,7 @@
 
 - **Cadence:** Weekly (60 mins)
 - **Attendees:** Product, Engineering, Design, Growth, Support
-- **Period State:** Preview until cutoff and coverage checks are complete
+- **Period State:** Preview while the interval is open; closed after cutoff with per-metric coverage states
 - **Capture / Coverage:** <offset-aware capture time, exact source window and access gaps>
 - **Reviewed Summary:** <reviewed note with an evidence link for Sheet Notes>
 

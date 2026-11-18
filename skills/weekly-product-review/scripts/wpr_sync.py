@@ -36,7 +36,7 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape as xml_escape
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 
 WEEKDAY_MAP = {
@@ -1395,8 +1395,8 @@ def generate_review_brief(
             signal = "Preview: period not closed"
         elif m.mtype == "not-collected":
             signal = m.source_eta or "Planned"
-        elif m.mtype == "manual" and cur is None:
-            signal = "Pending input"
+        elif cur is None:
+            signal = "Pending input" if m.mtype == "manual" else "Unavailable"
         elif tnum is not None and cur is not None:
             signal = "Below target" if cur < tnum else "At/above target"
         else:
@@ -1468,6 +1468,45 @@ def generate_review_brief(
     return md_text, render_brief_html(title, md_text)
 
 
+def rebase_markdown_links(text: str, source_dir: Path, destination_dir: Path) -> str:
+    """Keep local inline-link targets stable when exporting a Markdown source."""
+    source_dir, destination_dir = source_dir.resolve(), destination_dir.resolve()
+    if source_dir == destination_dir:
+        return text
+
+    def replace(match):
+        if match[1] is not None:  # Inline code is source text, not a link.
+            return match[0]
+        try:
+            target = urlsplit(match[4])
+        except ValueError:
+            return match[0]
+        if target.scheme or target.netloc or not target.path or target.path.startswith(("/", "\\")):
+            return match[0]
+        absolute = (source_dir / unquote(target.path)).resolve()
+        try:
+            relative = Path(os.path.relpath(str(absolute), str(destination_dir))).as_posix()
+        except ValueError as error:
+            raise ValueError("Export local evidence links to the same drive as their source") from error
+        url = urlunsplit(("", "", quote(relative, safe="/"), target.query, target.fragment))
+        return match[3] + url + match[5]
+
+    pattern = r"(`+)(.*?)\1|(!?\[[^\]\n]+\]\()([^\s)]+)(\))"
+    output, fence = [], None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            output.append(line)
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = None
+        elif marker:
+            fence = marker[1]
+            output.append(line)
+        else:
+            output.append(re.sub(pattern, replace, line))
+    return "".join(output)
+
+
 def _render_inline(text: str, depth: int = 0) -> str:
     """Render the documented inline subset; escape HTML and reject executable URL schemes."""
     if depth > 8:
@@ -1500,8 +1539,6 @@ def render_brief_html(title: str, md_text: str) -> str:
     html_parts = [
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>",
         f"<title>{html.escape(title)}</title>",
-        "<link rel='preconnect' href='https://fonts.googleapis.com'><link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>",
-        "<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap' rel='stylesheet'>",
         "<style>"
         "body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Arial,sans-serif;background:#F8FAFC;color:#09090B;max-width:960px;margin:2.5rem auto;padding:0 1.5rem;line-height:1.55}"
         "h1{font-size:1.85rem;font-weight:700;color:#09090B;letter-spacing:-0.02em;margin-bottom:.35rem}"
@@ -1629,7 +1666,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     for e in entries_desc:
         review_path = wpr_dir / "reviews" / f"{e.week_date.isoformat()}-wpr.md"
         if review_path.exists():
-            latest_note_by_date[e.week_date] = reviewed_summary(review_path.read_text(encoding="utf-8-sig"))
+            summary = reviewed_summary(review_path.read_text(encoding="utf-8-sig"))
+            latest_note_by_date[e.week_date] = rebase_markdown_links(summary, review_path.parent, out_dir)
 
     years = sorted({e.week_date.year for e in entries_desc} | {cfg.year})
     year_q_dates = {y: dates_for_year(y, cfg.week_ending_day) for y in years}
@@ -1707,8 +1745,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     write_xlsx(sheets_out, xlsx_path, active_tab_idx=active_idx)
 
     reviews_dir = wpr_dir / "reviews"
-    md_brief, html_brief = generate_review_brief(cfg, entries_desc, eval_vals, reviews_dir)
-    (out_dir / "wpr-review-draft.md").write_text(md_brief, encoding="utf-8")
+    md_brief, _ = generate_review_brief(cfg, entries_desc, eval_vals, reviews_dir)
+    (out_dir / "wpr-review-draft.md").write_text(rebase_markdown_links(md_brief, reviews_dir, out_dir), encoding="utf-8")
 
     if entries_desc:
         reviews_dir.mkdir(parents=True, exist_ok=True)
@@ -1719,8 +1757,10 @@ def cmd_build(args: argparse.Namespace) -> int:
         else:
             rev_text = rev_path.read_text(encoding="utf-8-sig")
             md_brief = rev_text
-            html_title = f"{cfg.product_name} Weekly Product Review - {entries_desc[0].week_date.isoformat()}"
-            html_brief = render_brief_html(html_title, rev_text)
+
+    md_brief = rebase_markdown_links(md_brief, reviews_dir, out_dir)
+    html_title = f"{cfg.product_name} Weekly Product Review" + (f" - {entries_desc[0].week_date.isoformat()}" if entries_desc else "")
+    html_brief = render_brief_html(html_title, md_brief)
 
     (out_dir / "wpr-review-brief.md").write_text(md_brief, encoding="utf-8")
     (out_dir / "wpr-review-brief.html").write_text(html_brief, encoding="utf-8")
@@ -1728,7 +1768,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     archive_parts: List[str] = []
     if reviews_dir.exists():
         for rf in sorted(reviews_dir.glob("*-wpr.md"), reverse=True):
-            archive_parts.append(rf.read_text(encoding="utf-8-sig").strip())
+            archive_parts.append(rebase_markdown_links(rf.read_text(encoding="utf-8-sig"), rf.parent, out_dir).strip())
     if not archive_parts:
         archive_parts.append(md_brief.strip())
     archive_md = "\n\n---\n\n".join(archive_parts) + "\n"

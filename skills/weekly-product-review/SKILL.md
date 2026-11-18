@@ -85,7 +85,7 @@ Follow `references/sheet-template-spec.md` and `references/integrations.md`:
 2. **Pull manual Sheet edits (if any)**: Export multi-tab Google Sheets with `--format xlsx` (not `--format csv`, which only exports tab 1) and run `scripts/wpr_sync.py import-xlsx` (or `import-csv` for single-tab CSVs).
    - Use `--dry-run` to inspect proposed changes without writing. Both imports and `add-week` preserve surrounding Markdown; no-op imports leave the file unchanged. Changed files are replaced atomically.
 3. **Prompt only for remaining manual gaps** and check data hygiene (missing manual inputs, unit mismatches, >= 20% WoW swings, Amber ETAs due).
-   - Keep open periods as `Period State: preview`. Close only after the cutoff and coverage checks. Missing or stale data stays blank; verified zero requires checked coverage. WoW uses exactly the adjacent weekly date; averages need four consecutive, comparable closed periods.
+   - Keep an unfinished reporting interval as `Period State: preview`. After its cutoff, check coverage per metric: a closed period may contain explicit blank `unavailable` or `stale` cells alongside verified values. A failed source does not hide verified values from independent sources. Unverified observations remain blank or excluded; verified zero requires checked coverage. WoW uses exactly the adjacent weekly date; averages need four consecutive, comparable closed numeric observations for that metric.
 4. **Update, rebuild, pre-draft commentary, and sync in place**:
    - Add a preview week (`scripts/wpr_sync.py add-week`), reconcile verified values, close the period when ready, run `scripts/wpr_sync.py build --active-tab-first`, and run any host workspace validator. If a dated review exists, refresh its numeric highlights from `wpr-review-draft.md`; the builder preserves its reviewed content across final exports.
    - **Pre-draft Sections 3 to 5 before syncing the Doc**: Populate real anecdotes from project records, analytics notes, support logs, or user input (never invent quotes or stats), draft concrete `Expected vs. Unexpected`, `Signal vs. Noise`, and `Splits Needed` discussion points from the numbers, and propose initial two-track actions (clearly marking unconfirmed hypotheses for review).
@@ -96,7 +96,7 @@ Follow `references/sheet-template-spec.md` and `references/integrations.md`:
 ## Mode 3: Run Weekly Review (Anecdotes and Decisions)
 
 Guide a focused 20 to 60 minute review using the pre-drafted `wpr/reviews/YYYY-MM-DD-wpr.md`:
-1. **Carry-over actions**: Check open items from last week first.
+1. **Carry-over actions**: Check only recorded actions in the prior review's Decisions section. Keep unrelated open questions in Discussion. Preserve the exact status in the Status cell (for example `In Progress`); put commentary in Update or adjacent prose so it does not change the status value.
 2. **Inspect variance and drivers** (focus on anomalies, not every row): Refine the pre-drafted `Expected vs. Unexpected`, `Signal vs. Noise` (vs. 4-week rolling average), controllable drivers, and needed segment splits.
 3. **Pair with anecdotes**: Verify and expand 1 to 3 specific customer quotes or feedback items. If user reports contradict aggregate totals, treat that mismatch as a prompt to split the metric by segment.
 4. **Lock two-track actions** (each with What, Owner, Due Date):
