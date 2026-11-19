@@ -632,7 +632,8 @@ def validate_wpr(wpr_dir: Path) -> Tuple[List[str], List[str]]:
             for m in cfg.metrics:
                 c = newest.cells.get(m.metric_id)
                 state = c.status if c else ""
-                if c and c.value_raw and state not in {"preview", "stale", "unavailable"}:
+                if (newest.period_state == "closed" and c and c.value_raw
+                        and state not in {"preview", "stale", "unavailable"}):
                     continue
                 if c and c.gap_reason:
                     reason = c.gap_reason
@@ -837,7 +838,8 @@ def plan_sync(payload: dict, previous: Optional[dict], date: str) -> dict:
         raise ValueError(f"No workbook column for {date}")
     plans = []
     for title, tab in payload["tabs"].items():
-        if not re.fullmatch(r"Q[1-4] \d{2}|Full Year \d{4}", title):
+        role = tab.get("sheet_role", {})
+        if role.get("kind") not in {"quarter", "year"} and (role or not re.fullmatch(r"Q[1-4] \d{2}|Full Year \d{4}", title)):
             continue
         column = tab["week_columns"].get(date)
         if not column and not catalog_changed:
@@ -851,12 +853,16 @@ def plan_sync(payload: dict, previous: Optional[dict], date: str) -> dict:
             display = tab.get("week_display", {}).get(date, {})
         if catalog_changed:
             writes.append({"range": f"A1:B{len(values)}", "values": [row[:2] for row in values]})
-        plans.append({"tab": title, "date": date, "expected_column": column, "writes": writes, **display})
+        plan = {"tab": title, "date": date, "expected_column": column, "writes": writes, **display}
+        for key in ("sheet_role", "row_layout"):
+            if key in tab:
+                plan[key] = tab[key]
+        plans.append(plan)
     if not plans:
         raise ValueError(f"No workbook column for {date}")
     return {"date": date, "catalog_changed": catalog_changed, "row_signature": payload["row_signature"],
             "catalog_signature": payload.get("catalog_signature"), "tabs": plans,
-            "precondition": "Read live metadata, row 4 dates, labels, targets and current target cells; remap columns by date if needed",
+            "precondition": "Resolve live tabs by role, columns by date and rows by metric ID or purpose before writing",
             "network_writes": False}
 
 
@@ -897,17 +903,18 @@ def plan_doc_sync(document: dict, date: dt.date) -> dict:
             raise ValueError(f"Invalid dated Heading 1: {text}")
         if sections and sections[-1][0] <= parsed:
             raise ValueError("Dated Heading 1 sections must be unique and newest first")
-        sections.append((parsed, block["startIndex"]))
+        sections.append((parsed, block["startIndex"], block["endIndex"]))
 
     # Docs protects the terminal newline. Its indices are already UTF-16 offsets.
     end = content[-1]["endIndex"] - 1
     plan = {"heading": week_heading(date), "action": "insert", "start_index": end, "end_index": end,
             "at_end": True, "write_control": {"requiredRevisionId": revision}}
-    for index, (section_date, start) in enumerate(sections):
+    for index, (section_date, start, heading_end) in enumerate(sections):
         if section_date == date:
             at_end = index + 1 == len(sections)
-            plan.update(action="replace", start_index=start,
-                        end_index=end if at_end else sections[index + 1][1], at_end=at_end)
+            section_end = end if at_end else sections[index + 1][1]
+            plan.update(action="replace", start_index=start, end_index=section_end,
+                        body_start_index=min(heading_end, section_end), at_end=at_end)
             break
         if section_date < date:
             plan.update(start_index=start, end_index=start, at_end=False)
@@ -993,6 +1000,7 @@ def build_sheet_grid(
     r3[1] = {"v": None, "f": None, "fill": FILL_SLATE_SECTION, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": None}
     r4 = blank_row()
     r4[0] = {"v": cfg.week_ending_day, "f": None, "fill": FILL_SLATE_SECTION, "fmt": 0, "bold": True, "font": 1, "border": 1, "align": "left"}
+    r4[0]["row_role"] = "date_key"
     r4[1] = {"v": None, "f": None, "fill": FILL_SLATE_SECTION, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": None}
 
     for i, wd in enumerate(week_dates_desc):
@@ -1011,6 +1019,7 @@ def build_sheet_grid(
     r5 = [{"v": None, "f": None, "fill": FILL_MIDNIGHT_HEADER, "fmt": 0, "bold": True, "font": 2, "border": 2, "align": "right"} for _ in range(ncols)]
     r5[0]["v"] = "Metric"
     r5[0]["align"] = "left"
+    r5[0]["row_role"] = "date_header"
     r5[1]["v"] = "Target"
     for i in range(len(week_dates_desc)):
         cl = col_letter(3 + i)
@@ -1026,6 +1035,7 @@ def build_sheet_grid(
     grid.extend([r1, r2, r3, r4, r5, r6])
     coverage_row = blank_row()
     coverage_row[0]["v"] = "Coverage / Review Doc"
+    coverage_row[0]["row_role"] = "coverage"
     doc_url = cfg.doc_url or (f"https://docs.google.com/document/d/{quote(cfg.doc_id, safe='')}/edit" if cfg.doc_id else "")
     for i, wd in enumerate(week_dates_desc):
         week = entries_by_date.get(wd)
@@ -1190,6 +1200,7 @@ def build_sheet_grid(
 
     notes_row = blank_row()
     notes_row[0] = {"v": "Weekly Highlights / Doc", "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": "left"}
+    notes_row[0]["row_role"] = "closed_highlights"
     notes_row[1] = {"v": None, "f": None, "fill": 0, "fmt": 0, "bold": False, "font": 3, "border": 1, "align": None}
     for i, wd in enumerate(week_dates_desc):
         if wd in latest_note_by_date and wd in entries_by_date and entries_by_date[wd].period_state == "closed":
@@ -1545,7 +1556,7 @@ def generate_review_brief(
 
         traw, tnum = m.target_for_tab(active_tab_name)
         if newest.period_state != "closed":
-            signal = "Preview: period not closed"
+            signal = observed.gap_reason if observed and observed.gap_reason else "Preview: period not closed"
             if observed and observed.value_num is not None and observed.status not in {"stale", "unavailable", "not-collected"}:
                 display = "0 so far" if observed.value_num == 0 else format_val(observed.value_num, m.fmt)
         elif m.mtype == "not-collected":
@@ -1780,7 +1791,7 @@ def render_brief_html(title: str, md_text: str) -> str:
     return "\n".join(html_parts)
 
 
-def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date]) -> dict:
+def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date], sheet_role=None) -> dict:
     values: List[List[str]] = []
     fills: List[Tuple[str, str]] = []
     fill_hex = {
@@ -1808,20 +1819,23 @@ def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date]) -> d
         values.append(row_vals)
     week_cols = {}
     week_display = {}
+    roles = {row[0]["row_role"]: r for r, row in enumerate(grid, 1) if "row_role" in row[0]}
+    metric_rows = {row[-1]["v"]: r for r, row in enumerate(grid, 1) if r > roles["date_header"] and row[-1]["v"]}
+    date_header, coverage, highlights = (roles[role] for role in ("date_header", "coverage", "closed_highlights"))
     for index, wd in enumerate(week_dates_desc, start=2):
         date, col = wd.isoformat(), col_letter(index + 1)
         week_cols[date] = col
-        date_pattern = GRID_NUMBER_FORMATS[grid[4][index]["fmt"]][2]
+        date_pattern = GRID_NUMBER_FORMATS[grid[date_header - 1][index]["fmt"]][2]
         number_formats = {}
-        for r, row in enumerate(grid[7:], start=8):
+        for r, row in enumerate(grid[coverage:], start=coverage + 1):
             cell = row[index]
             if cell["fmt"] in GRID_NUMBER_FORMATS:
                 _, sheets_type, pattern = GRID_NUMBER_FORMATS[cell["fmt"]]
                 number_formats[f"{col}{r}"] = {"type": sheets_type, "pattern": pattern}
         week_display[date] = {
-            "date_header": {"cell": f"{col}5", "number_format": date_pattern},
-            "coverage_cell": f"{col}7",
-            "notes_cell": f"{col}{len(grid)}",
+            "date_header": {"cell": f"{col}{date_header}", "number_format": date_pattern},
+            "coverage_cell": f"{col}{coverage}",
+            "notes_cell": f"{col}{highlights}",
             "text_cells": [f"{col}{r}" for r, row in enumerate(grid, 1) if row[index].get("display_text")],
             "number_cells": [f"{col}{r}" for r, row in enumerate(grid, 1)
                              if row[index]["f"] is None and isinstance(row[index]["v"], (int, float))
@@ -1830,7 +1844,11 @@ def grid_to_payload(grid: List[List[dict]], week_dates_desc: List[dt.date]) -> d
             "fills": {f"{col}{r}": fill_hex[row[index]["fill"]] for r, row in enumerate(grid, 1)
                       if row[index]["fill"] in fill_hex},
         }
-    return {"values": values, "cell_fills": fills, "week_columns": week_cols, "week_display": week_display}
+    payload = {"values": values, "cell_fills": fills, "week_columns": week_cols, "week_display": week_display,
+               "row_layout": {"roles": roles, "metrics": metric_rows}}
+    if sheet_role:
+        payload["sheet_role"] = sheet_role
+    return payload
 
 
 def cmd_build(args: argparse.Namespace) -> int:
@@ -1895,7 +1913,7 @@ def cmd_build(args: argparse.Namespace) -> int:
                 latest_note_by_date=latest_note_by_date,
             )
             sheets_out.append((tname, grid))
-            payload_tabs[tname] = grid_to_payload(grid, q_dates[q])
+            payload_tabs[tname] = grid_to_payload(grid, q_dates[q], {"kind": "quarter", "year": y, "quarter": q})
             prev_q_tab = tname
             prev_q_dates = q_dates[q]
             cumulative_q_tabs.append((tname, 2 + len(q_dates[q])))
@@ -1921,7 +1939,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             latest_note_by_date=latest_note_by_date,
         )
         sheets_out.append((fy_name, fy_grid))
-        payload_tabs[fy_name] = grid_to_payload(fy_grid, all_dates_desc)
+        payload_tabs[fy_name] = grid_to_payload(fy_grid, all_dates_desc, {"kind": "year", "year": y})
         cumulative_fy_tabs.append((fy_name, 2 + len(all_dates_desc)))
 
     active_idx = next((idx for idx, (nm, _) in enumerate(sheets_out) if nm == active_tab_name), 0)
@@ -2171,18 +2189,9 @@ def _col_ref_to_idx(ref: str) -> Tuple[int, int]:
     return int(row_str), c_idx
 
 
-def cmd_import_xlsx(args: argparse.Namespace) -> int:
-    """Import manual metric values across all quarter tabs of an .xlsx export (stdlib only)."""
-    wpr_dir = Path(args.wpr_dir)
-    _preflight_mutation(wpr_dir)
-    cfg = load_config(wpr_dir / "wpr-config.md")
-    data_path = wpr_dir / "metrics-data.md"
-    entries = load_metrics_data(data_path) if data_path.exists() else []
-    by_date = {e.week_date: e for e in entries}
-
-    updated = 0
-    report = {"unmatched_rows": [], "uncomputed_headers": []}
-    with zipfile.ZipFile(args.xlsx) as z:
+def read_xlsx_sheets(source, include_sheet=None):
+    """Yield worksheet names and raw cell grids from an XLSX path or binary stream."""
+    with zipfile.ZipFile(source) as z:
         strings: List[str] = []
         if "xl/sharedStrings.xml" in z.namelist():
             sroot = ET.fromstring(z.read("xl/sharedStrings.xml"))
@@ -2195,7 +2204,7 @@ def cmd_import_xlsx(args: argparse.Namespace) -> int:
 
         for sheet in wb_root.findall(".//m:sheet", XLSX_NS):
             sname = sheet.attrib["name"]
-            if sname.lower().startswith("full year"):
+            if include_sheet is not None and not include_sheet(sname):
                 continue
             rid = sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
             target = "xl/" + rel_map[rid].lstrip("/")
@@ -2226,7 +2235,22 @@ def cmd_import_xlsx(args: argparse.Namespace) -> int:
                 row_map = rows_dict.get(r, {})
                 rows_grid.append([row_map.get(c, "") for c in range(1, max_c + 1)])
 
-            updated += _reconcile_rows_into_entries(cfg, rows_grid, by_date, report)
+            yield sname, rows_grid
+
+
+def cmd_import_xlsx(args: argparse.Namespace) -> int:
+    """Import manual metric values across all quarter tabs of an .xlsx export (stdlib only)."""
+    wpr_dir = Path(args.wpr_dir)
+    _preflight_mutation(wpr_dir)
+    cfg = load_config(wpr_dir / "wpr-config.md")
+    data_path = wpr_dir / "metrics-data.md"
+    entries = load_metrics_data(data_path) if data_path.exists() else []
+    by_date = {e.week_date: e for e in entries}
+
+    updated = 0
+    report = {"unmatched_rows": [], "uncomputed_headers": []}
+    for _, rows_grid in read_xlsx_sheets(args.xlsx, lambda name: not name.lower().startswith("full year")):
+        updated += _reconcile_rows_into_entries(cfg, rows_grid, by_date, report)
 
     _print_import_report(report)
     dry_run = getattr(args, "dry_run", False)

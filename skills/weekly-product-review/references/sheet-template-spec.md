@@ -47,6 +47,8 @@ For every calendar year present in `wpr/metrics-data.md` (or configured `Year`):
 
 These are generated workbook positions. In a live Sheet, locate the coverage and highlights rows by purpose, metric rows by ID, and the week column by date. Preserve the calendar key and date formula. Write preview figures as literal text and keep comparison and cumulative cells blank. At close, restore the date-only number format, replace preview text with verified numbers or blanks, and apply result formats from the sync plan. Coverage and the Doc link share one cell. Use Notes for closed-week highlights.
 
+The sync plan includes the generated `sheet_role` and `row_layout`, with stable metric IDs and separate roles for the date key, display header, coverage and closed highlights. Resolve each of these in the destination before writing. Generated coordinates and display names are hints. An unmatched or ambiguous live row needs reconciliation before sending writes or formulas that refer to it.
+
 ---
 
 ## Standard Formulas (Google Sheets + Excel Compatible)

@@ -106,3 +106,86 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual({o["scope"] for o in result["observations"] if o["source_label"] == "Profile viewers"},
                          {"account", "post-a-attributed"})
         self.assertTrue(all(r["value"] not in {214, 218, 225} for r in result["records"]))
+
+    def test_item_identity_aliases_and_snapshot_replay(self):
+        capture = json.loads((ROOT / "capture.partial-close.example.json").read_text(encoding="utf-8"))
+        result = collector.collect(capture, capture["captured_at"])
+        items = {item["id"]: item for item in capture["items"]}
+        self.assertEqual(items["post-a"]["promotes"], "tutorial-a")
+        rows = result["item_snapshots"]
+        self.assertEqual({row["window"] for row in rows if row["item_id"] == "post-a"},
+                         {"rolling-seven-days", "since-publication"})
+        self.assertEqual(collector.merge_snapshots(rows, rows), rows)
+        self.assertEqual([row["item_alias"] for row in result["unresolved_item_observations"]], ["rank-7"])
+        embedded, preceding = result["attribution_evidence"]
+        self.assertIsNone(embedded["archive_url"])
+        self.assertTrue(embedded["rendered_evidence"])
+        self.assertIsNone(preceding["item_id"])
+
+    def test_native_profile_and_utc_creator_windows_close_separately_from_local_events(self):
+        capture = copy.deepcopy(self.capture)
+        creator = {"period_start_exclusive": "2027-02-04T23:59:59.999999+00:00",
+                   "period_end_inclusive": "2027-02-11T23:59:59.999999+00:00", "time_zone": "UTC"}
+        profile = {"period_start_exclusive": "2027-02-03T23:59:59.999999-05:00",
+                   "period_end_inclusive": "2027-02-10T23:59:59.999999-05:00", "time_zone": "America/New_York"}
+        capture["source_windows"] = {"weekly_reach": creator, "weekly_visitors": profile}
+        for metric, window in capture["source_windows"].items():
+            capture["account"][metric].update(window, coverage_through=window["period_end_inclusive"])
+        rows = self.records(capture)
+        self.assertEqual([(rows[metric]["time_zone"], rows[metric]["value"])
+                          for metric in ("weekly_reach", "weekly_visitors", "meetings")],
+                         [("UTC", 640), ("America/New_York", 32), ("Europe/Berlin", 1)])
+        shifted = capture["account"]["weekly_visitors"]
+        shifted["period_end_inclusive"] = "2027-02-10T23:59:59.999999-04:00"
+        self.assertIsNone(self.records(capture)["weekly_visitors"]["value"])
+
+    def test_cutoff_minute_and_missing_channel_are_independent_at_close(self):
+        capture = json.loads((ROOT / "capture.partial-close.example.json").read_text(encoding="utf-8"))
+        capture["event_sources"] = {"attempts": {"available": False, "source": "Synthetic channel"}}
+        records = self.records(capture, capture["captured_at"])
+        self.assertEqual(records["weekly_reach"]["value"], 250)
+        self.assertEqual(records["outcomes"]["state"], "verified-zero")
+        self.assertEqual(records["attempts"]["state"], "unavailable")
+        self.assertIsNone(records["attempts"]["value"])
+        self.assertEqual(records["responses"]["value"], 1)
+        self.assertIsNone(records["article_growth"]["value"])
+        del capture["cutoff_minute"]
+        self.assertEqual(self.records(capture, capture["captured_at"])["responses"]["reason"],
+                         "Cutoff-minute event needs a reporting rule")
+
+    def test_preview_brief_keeps_compact_coverage_and_expected_baseline_gap(self):
+        cfg = wpr.load_config(ROOT / "wpr-config.md")
+        closed = next(row for row in wpr.load_metrics_data(ROOT / "metrics-data.md") if row.period_state == "closed")
+        closed.period_state = "preview"
+        values = wpr.evaluate_metric_series(cfg, [closed])
+        with tempfile.TemporaryDirectory() as tmp:
+            markdown, rendered = wpr.generate_review_brief(cfg, [closed], values, Path(tmp))
+        article = next(line for line in markdown.splitlines() if "Article Views Added" in line)
+        self.assertIn("Missing comparable baseline", article)
+        self.assertIn("closing counter at", article)
+        self.assertIn("Missing comparable baseline", rendered)
+
+    def test_booking_counts_once_at_confirmation_and_retains_later_attendance(self):
+        capture = copy.deepcopy(self.capture)
+        first, last = capture["period_start_exclusive"], capture["period_end_inclusive"]
+        capture["events"] = [
+            {"at": "2027-02-10T17:00:00+01:00", "kind": "meeting-confirmed", "meeting_id": "meeting-synthetic"},
+        ]
+        before = self.records(capture)["meetings"]["value"]
+        next_cutoff = "2027-02-19T17:00:00+01:00"
+        capture.update(period_start_exclusive=last, period_end_inclusive=next_cutoff,
+                       captured_at=next_cutoff, coverage_through=next_cutoff)
+        capture["events"].extend([
+            {"at": "2027-02-15T11:00:00+01:00", "kind": "meeting-confirmed", "meeting_id": "meeting-synthetic"},
+            {"at": "2027-02-17T10:00:00+01:00", "kind": "meeting-held", "meeting_id": "meeting-synthetic"},
+        ])
+        result = collector.collect(capture, next_cutoff)
+        after = next(row["value"] for row in result["records"] if row["metric_id"] == "meetings")
+        self.assertEqual((before, after), (1, 0))
+        self.assertEqual([row["kind"] for row in result["event_evidence"]][-1], "meeting-held")
+        # Reallocate from an incorrect held-week booking to its confirmed week.
+        booked_before_restatement = {last: 0, next_cutoff: 1}
+        capture.update(period_start_exclusive=first, period_end_inclusive=last)
+        confirmed_week = self.records(capture, next_cutoff)["meetings"]["value"]
+        restated = {last: confirmed_week, next_cutoff: after}
+        self.assertEqual([restated[day] - prior for day, prior in booked_before_restatement.items()], [1, -1])

@@ -92,16 +92,19 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("'Q1 27'!", average)
 
     def test_preview_scorecard_displays_text_then_closes_to_verified_numbers(self):
+        source = metric("feed", analyses=[], fmt="int")
+        source.mtype = "automated"
         cfg = wpr.WPRConfig(doc_url="https://example.test/reviews", metrics=[
             metric(analyses=["wow", "rolling_4w", "qtd_sum"]),
             metric("zero", analyses=[], fmt="int"), metric("missing", analyses=[], fmt="currency"),
-            metric("blank", analyses=[], fmt="percent"), metric("running", "cumsum:units", analyses=[]),
+            metric("blank", analyses=[], fmt="percent"), metric("running", "cumsum:units", analyses=[]), source,
         ])
         row = entry("2027-02-12", 40, state="preview")
         row.coverage = "6–11 February 2027"
         row.missing_sources = "Synthetic service export"
         row.cells["zero"] = wpr.WeekCell("zero", "Zero", "0", 0, "preview", "")
         row.cells["missing"] = wpr.WeekCell("missing", "Missing", "", None, "unavailable", "")
+        row.cells["feed"] = wpr.WeekCell("feed", "Feed", "9", 9, "automated", "")
         dates = wpr.dates_for_year(2027, "Friday")[1]
         date = row.week_date.isoformat()
         def build():
@@ -114,6 +117,7 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(grid[zero][idx]["v"], "0 so far")
         self.assertEqual(grid[missing][idx]["v"], "Pending (preview)")
         self.assertEqual(grid[units][idx]["fill"], wpr.FILL_AMBER_PENDING)
+        self.assertEqual(grid[missing][idx]["fill"], wpr.FILL_AMBER_PENDING)
         self.assertEqual(grid[blank][idx]["fill"], wpr.FILL_LEGEND_BG)
         for analysis in grid[units + 1:units + 4]:
             self.assertIsNone(analysis[idx]["v"])
@@ -123,11 +127,18 @@ class ReportingTests(unittest.TestCase):
         self.assertIsNone(grid[-1][idx]["v"])
         self.assertEqual(sum("https://example.test/reviews" in str(c) for c in (r[idx] for r in grid)), 1)
         self.assertTrue(any(row.coverage in (r[idx]["f"] or "") for r in grid))
-        preview = wpr.grid_to_payload(grid, dates)
+        role = {"kind": "quarter", "year": row.week_date.year, "quarter": 1}
+        preview = wpr.grid_to_payload(grid, dates, role)
         column = preview["week_columns"][date]
         def payload(tab):
-            return {"row_signature": "layout", "catalog_signature": "catalog", "tabs": {"Q1 27": tab}}
+            return {"row_signature": "layout", "catalog_signature": "catalog", "tabs": {"Synthetic scorecard": tab}}
         plan = wpr.plan_sync(payload(preview), payload(preview), date)["tabs"][0]
+        self.assertEqual(plan["sheet_role"], role)
+        self.assertEqual(plan["row_layout"]["metrics"], rows)
+        roles = plan["row_layout"]["roles"]
+        self.assertEqual(plan["coverage_cell"], f"{column}{roles['coverage']}")
+        self.assertEqual(plan["notes_cell"], f"{column}{roles['closed_highlights']}")
+        self.assertNotEqual(plan["coverage_cell"], plan["notes_cell"])
         self.assertIn(f"{column}{units + 1}", plan["text_cells"])
         self.assertIn("Preview", plan["date_header"]["number_format"])
         self.assertEqual(plan["number_formats"], {})
@@ -137,12 +148,15 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(closed[units][idx]["v"], 40)
         self.assertEqual(closed[units][idx]["fill"], wpr.FILL_ICE_MANUAL)
         self.assertEqual(closed[zero][idx]["v"], 0)
+        self.assertEqual(closed[zero][idx]["fill"], wpr.FILL_ICE_MANUAL)
+        self.assertEqual(closed[rows["feed"] - 1][idx]["v"], 9)
+        self.assertEqual(closed[rows["feed"] - 1][idx]["fill"], wpr.FILL_ZINC_CALC)
         self.assertIsNone(closed[missing][idx]["v"])
         self.assertEqual(closed[blank][idx]["fill"], wpr.FILL_LEGEND_BG)
         self.assertEqual(closed[-1][idx]["v"], "Reviewed highlight")
         self.assertIn("ISNUMBER", closed[units + 3][idx]["f"])
         self.assertIn("ISNUMBER", closed[rows["running"] - 1][idx]["f"])
-        close_plan = wpr.plan_sync(payload(wpr.grid_to_payload(closed, dates)), payload(preview), date)["tabs"][0]
+        close_plan = wpr.plan_sync(payload(wpr.grid_to_payload(closed, dates, role)), payload(preview), date)["tabs"][0]
         self.assertEqual(close_plan["text_cells"], [])
         self.assertEqual(close_plan["date_header"]["number_format"], "mmm dd")
         self.assertIn(f"{column}{zero + 1}", close_plan["number_cells"])
@@ -155,6 +169,7 @@ class ReportingTests(unittest.TestCase):
             f"{column}{zero + 1}": {"type": "NUMBER", "pattern": "#,##0"},
             f"{column}{missing + 1}": {"type": "CURRENCY", "pattern": "$#,##0"},
             f"{column}{blank + 1}": {"type": "PERCENT", "pattern": "0.0%"},
+            f"{column}{rows['feed']}": {"type": "NUMBER", "pattern": "#,##0"},
         })
         self.assertIn("Synthetic service export", str(close_plan["writes"]))
 

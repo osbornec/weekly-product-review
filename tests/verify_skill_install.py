@@ -27,7 +27,7 @@ RUNTIME_FILES = {
     "examples/creator-wpr/README.md", "examples/creator-wpr/capture.example.json",
     "examples/creator-wpr/capture.partial-close.example.json",
     "examples/creator-wpr/collect_wpr.py", "examples/creator-wpr/metrics-data.md",
-    "examples/creator-wpr/wpr-config.md",
+    "examples/creator-wpr/workbook_exports.py", "examples/creator-wpr/wpr-config.md",
 }
 OUTPUTS = {"wpr-workbook.xlsx", "wpr-review-draft.md", "wpr-review-brief.md",
            "wpr-review-brief.html", "wpr-review-archive.md", "sheets-payload.json"}

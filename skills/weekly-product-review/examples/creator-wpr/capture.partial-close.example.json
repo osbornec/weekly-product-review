@@ -5,6 +5,17 @@
   "coverage_through": "2027-02-05T17:00:00+01:00",
   "time_zone": "Europe/Berlin",
   "comparison_group": "weekly-cutoff-v1",
+  "cutoff_minute": "include",
+  "items": [
+    {"id": "tutorial-a", "kind": "article", "evidence": "https://example.test/articles/reed-lab"},
+    {"id": "post-a", "kind": "article-promotion", "promotes": "tutorial-a", "evidence": "https://example.test/posts/reed-lab"},
+    {"id": "post-b", "kind": "original-post", "evidence": "https://example.test/posts/field-notes"}
+  ],
+  "aliases": [
+    {"source": "Synthetic post dashboard", "alias": "rank-a", "item_id": "post-a", "verified": true, "evidence": "Matching rendered link"},
+    {"source": "Synthetic ranking table", "alias": "rank-7", "item_id": "post-a", "verified": true, "evidence": "Caption match only"},
+    {"source": "Synthetic ranking table", "alias": "rank-7", "item_id": "post-b", "verified": true, "evidence": "Duplicate caption match"}
+  ],
   "account": {
     "weekly_reach": {
       "value": 250,
@@ -38,18 +49,29 @@
     {"at": "2027-02-02T12:00:00+01:00", "kind": "attempt"},
     {"at": "2027-02-03T12:00:00+01:00", "kind": "attempt"},
     {"at": "2027-02-04T12:00:00+01:00", "kind": "attempt"},
-    {"at": "2027-02-04T14:00:00+01:00", "kind": "substantive-response", "person_id": "person-a"}
+    {"at": "2027-02-05T17:00:00+01:00", "precision": "minute", "kind": "substantive-response", "person_id": "person-a",
+     "provenance": "Explicit article reply", "item_id": "tutorial-a"}
+  ],
+  "attribution_evidence": [
+    {"kind": "embedded-share", "item_id": "post-a", "archive_url": null,
+     "rendered_evidence": "https://example.test/evidence/embedded-share"},
+    {"kind": "inbound-before-share", "person_id": "person-b", "item_id": null,
+     "evidence": "https://example.test/evidence/earlier-thread"}
   ],
   "observations": [
-    {"source": "Synthetic post dashboard", "source_label": "Impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 214,
+    {"source": "Synthetic post dashboard", "source_label": "Impressions", "item_alias": "rank-a", "metric_id": "impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 214,
      "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:03:00+01:00", "partial_day": true},
-    {"source": "Synthetic post detail", "source_label": "Impressions", "scope": "post-a", "window": "since-publication", "value": 225,
+    {"source": "Synthetic post detail", "source_label": "Impressions", "item_id": "post-a", "metric_id": "impressions", "scope": "post-a", "window": "since-publication", "value": 225,
      "period_start_exclusive": "2027-01-27T09:00:00+01:00", "period_end_inclusive": "2027-02-05T17:04:00+01:00", "captured_at": "2027-02-05T17:04:00+01:00"},
-    {"source": "Synthetic post dashboard", "source_label": "Impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 218,
+    {"source": "Synthetic post dashboard", "source_label": "Impressions", "item_alias": "rank-a", "metric_id": "impressions", "scope": "post-a", "window": "rolling-seven-days", "value": 218,
      "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:09:00+01:00", "partial_day": true},
     {"source": "Synthetic account dashboard", "source_label": "Profile viewers", "scope": "account", "window": "reporting-week", "value": 18,
      "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:08:00+01:00"},
-    {"source": "Synthetic post detail", "source_label": "Profile viewers", "scope": "post-a-attributed", "window": "since-publication", "value": 7,
-     "period_start_exclusive": "2027-01-27T09:00:00+01:00", "period_end_inclusive": "2027-02-05T17:04:00+01:00", "captured_at": "2027-02-05T17:04:00+01:00"}
+    {"source": "Synthetic post detail", "source_label": "Profile viewers", "item_id": "post-a", "metric_id": "profile_visitors", "scope": "post-a-attributed", "window": "since-publication", "value": 7,
+     "period_start_exclusive": "2027-01-27T09:00:00+01:00", "period_end_inclusive": "2027-02-05T17:04:00+01:00", "captured_at": "2027-02-05T17:04:00+01:00"},
+    {"source": "Synthetic ranking table", "source_label": "Views", "item_alias": "rank-7", "metric_id": "views", "scope": "item", "window": "selected-range", "value": 18,
+     "period_start_exclusive": "2027-01-29T17:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:09:00+01:00"},
+    {"source": "Synthetic article detail", "source_label": "Views", "item_id": "tutorial-a", "metric_id": "views", "scope": "item", "window": "since-publication", "value": 118,
+     "period_start_exclusive": "2027-01-27T08:00:00+01:00", "period_end_inclusive": "2027-02-05T17:00:00+01:00", "captured_at": "2027-02-05T17:10:00+01:00"}
   ]
 }

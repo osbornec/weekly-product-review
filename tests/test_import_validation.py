@@ -59,6 +59,13 @@ class ImportValidationTests(unittest.TestCase):
                 self.assertEqual(errors, [])
                 newest = [warning for warning in warnings if warning.startswith("Newest week")]
                 self.assertEqual(newest, [f"Newest week 2027-01-08: {label} (shipments, latency)."])
+        preview = table.format(state="preview", status="manual", reason="")
+        preview = preview.replace("| shipments | Shipments | |", "| shipments | Shipments | 12 |")
+        self.data.write_text(preview, encoding="utf-8")
+        errors, warnings = wpr.validate_wpr(self.root)
+        self.assertFalse(errors)
+        self.assertEqual([warning for warning in warnings if warning.startswith("Newest week")],
+                         ["Newest week 2027-01-08: Reporting period is open (shipments, latency)."])
 
     def test_unknown_csv_label_is_reported_and_noop(self):
         output = self.run_command(wpr.cmd_import_csv, csv=str(self.csv_input("13", label="Unknown measure")))
@@ -98,6 +105,8 @@ class ImportValidationTests(unittest.TestCase):
         self.run_command(wpr.cmd_import_xlsx, xlsx=str(self.root / "output" / "wpr-workbook.xlsx"))
         self.assertEqual(self.data.read_bytes(), empty)
         self.run_command(wpr.cmd_import_csv, csv=str(self.csv_input("0 so far")))
+        self.assertEqual(self.data.read_bytes(), empty)
+        self.run_command(wpr.cmd_import_csv, csv=str(self.csv_input("Pending (preview)")))
         self.assertEqual(self.data.read_bytes(), empty)
 
     def test_invalid_last_value_does_not_partially_commit_first_value(self):

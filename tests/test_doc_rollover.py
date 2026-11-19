@@ -18,12 +18,22 @@ def paragraph(text, heading=False, url=None):
                           "elements": [{"textRun": run}]}}
 
 
+def table(text, url):
+    return {"table": {"rows": 1, "columns": 1,
+                      "tableRows": [{"tableCells": [{"content": [paragraph(text, url=url)]}]}]}}
+
+
 def snapshot(blocks, revision):
     blocks = copy.deepcopy(blocks)
     offset = 1
     for block in blocks:
         block["startIndex"] = offset
-        text = block["paragraph"]["elements"][0]["textRun"]["content"]
+        if "table" in block:
+            nested = block["table"]["tableRows"][0]["tableCells"][0]["content"][0]
+            text = nested["paragraph"]["elements"][0]["textRun"]["content"]
+            offset += 3  # Structural markers before the only cell's text.
+        else:
+            text = block["paragraph"]["elements"][0]["textRun"]["content"]
         offset += len(text.encode("utf-16-le")) // 2
         block["endIndex"] = offset
     return {"revisionId": revision, "body": {"content": blocks}}
@@ -33,8 +43,9 @@ class DocRolloverTests(unittest.TestCase):
     def test_new_preview_close_and_rerun_older_week(self):
         newer, older = "2027-03-17", "2027-03-10"
         old_section = [paragraph("Week ending 10 March 2027", True),
-                       paragraph("State: Closed"), paragraph("Source \U0001f4c4", url="https://example.test/old")]
-        newer_link = paragraph("Source B", url="https://example.test/new")
+                       paragraph("State: Closed"), table("Source \U0001f4c4", "https://example.test/old")]
+        old_section[0]["paragraph"]["paragraphStyle"]["headingId"] = "older-anchor"
+        newer_link = table("Source B", "https://example.test/new")
         blocks = [paragraph("Synthetic review history", True), *old_section]
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -55,15 +66,20 @@ class DocRolloverTests(unittest.TestCase):
                 self.assertEqual(plan["write_control"], {"requiredRevisionId": revision})
                 starts = {block["startIndex"]: i for i, block in enumerate(doc["body"]["content"])}
                 starts[doc["body"]["content"][-1]["endIndex"] - 1] = len(blocks)
-                blocks[starts[plan["start_index"]]:starts[plan["end_index"]]] = replacement
+                start = plan.get("body_start_index", plan["start_index"])
+                if plan["action"] == "replace":
+                    self.assertEqual(starts[start], starts[plan["start_index"]] + 1)
+                    replacement = replacement[1:]
+                blocks[starts[start]:starts[plan["end_index"]]] = replacement
                 updated = snapshot(blocks, "after-write")
                 for day in (newer, older):
                     self.assertEqual(wpr.plan_doc_sync(updated, dt.date.fromisoformat(day))["action"], "replace")
                 headings = [b["paragraph"]["elements"][0]["textRun"]["content"].strip() for b in blocks
-                            if b["paragraph"]["paragraphStyle"]["namedStyleType"] == "HEADING_1"]
+                            if b.get("paragraph", {}).get("paragraphStyle", {}).get("namedStyleType") == "HEADING_1"]
                 self.assertEqual(headings, ["Synthetic review history", "Week ending 17 March 2027", "Week ending 10 March 2027"])
 
             new_heading = paragraph("Week ending 17 March 2027", True)
+            new_heading["paragraph"]["paragraphStyle"]["headingId"] = "newer-anchor"
             rerun(newer, "revision-1", [new_heading, paragraph("State: Preview"), newer_link], "insert")
             self.assertEqual(blocks[-3:], old_section)
             closed_section = [new_heading, paragraph("State: Closed"), newer_link]
@@ -71,6 +87,8 @@ class DocRolloverTests(unittest.TestCase):
             self.assertEqual(blocks[-3:], old_section)
             rerun(older, "revision-3", [old_section[0], paragraph("State: Closed, reviewed"), old_section[2]], "replace")
             self.assertEqual(blocks[1:4], closed_section)
+            self.assertEqual(blocks[-3]["paragraph"]["paragraphStyle"]["headingId"], "older-anchor")
+            self.assertEqual(blocks[-1], old_section[-1])
 
     def test_duplicate_or_out_of_order_headings_fail_before_a_write(self):
         older = paragraph("Week ending 10 March 2027", True)

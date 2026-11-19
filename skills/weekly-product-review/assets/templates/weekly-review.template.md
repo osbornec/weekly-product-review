@@ -1,6 +1,6 @@
 # Week ending <D Month YYYY>
 
-- **Period State:** <Preview or Closed>
+- **Period State:** <Preview or Closed; keep the dated heading at close>
 - **Product / Program:** <Name>
 - **Cadence:** Weekly (60 mins)
 - **Attendees:** Product, Engineering, Design, Growth, Support
@@ -11,7 +11,7 @@
 ## 1. Metric Highlights & Anomalies
 | Section | Metric | This Week | Prior Week | WoW % | 4-Wk Avg | Target | Signal | Capture / Coverage |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- | :--- |
-| | | | | | | | | <capture time with offset and actual source window or coverage end> |
+| | | | | | | | <source gap if applicable> | <brief source window and capture time with offset> |
 
 ## 2. Carry-Over Actions Review
 | Action | Owner | Due | Status | Update |
