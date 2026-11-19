@@ -1,6 +1,6 @@
 # Version 1.1.0 verification
 
-All fixtures are synthetic. The v1.1.0 candidate passed 91 standard-library tests on Windows with CPython 3.8.10 and 3.14.5. See [recovery and compatibility](recovery-and-compatibility.md) and the [independent beta](blind-beta-verification.md) for earlier test results.
+The development build passed 100 standard-library tests on Windows with CPython 3.8.10 and 3.14.5. All fixtures are synthetic. The tagged `v1.1.0-rc.1` used the earlier 91-test suite and a 19-file Skill package. See [recovery and compatibility](recovery-and-compatibility.md) and the [independent beta](blind-beta-verification.md) for those earlier results.
 
 | Area | Evidence |
 | --- | --- |
@@ -11,12 +11,17 @@ All fixtures are synthetic. The v1.1.0 candidate passed 91 standard-library test
 | Reviewed exports | Final Markdown, HTML and archive use the same dated source; numeric draft remains separate; links render safely. |
 | Actions | Only Decisions tables contribute carry-over; status retained; unrelated and future reviews excluded; reviewed summary links reach both reporting tabs. |
 | Creator example | Explicit offsets, exclusive/inclusive boundaries, daylight-saving transition, preview/failed/stale captures, comparable counters, verified zero and read-only history preservation. |
+| Workbook verification | A fresh, complete XLSX for the expected account and dates passes even if the browser event timed out. Tests cover duplicate-name suffixes, stale files, incomplete workbooks, wrong ranges and ledger readback. |
+| Daily reconciliation | The creator example checks 14 overlapping UTC days and rolls up seven complete days. An exact replay adds zero rows. Conflicting observations need corroboration before restatement. Open days and unresolved gaps stay outside the affected weekly totals. |
+| Source evidence | UTC creator totals, native profile windows and local event cutoffs stay separate. Tests cover item aliases, repeat snapshots, linked article and post identities, a cutoff-minute event, a booking held in a later week and partial close with verified zero. |
+| Reporting readback | Local fixtures check preview colours and numeric types, heading order and anchors, and table and link preservation. A simulated chart-position rejection exercises a smaller table write and checks that the existing chart survives. |
+| Coverage and gaps | Validation groups expected gaps by reason. The generated brief shows source coverage beside the result, including a known baseline gap during a preview. |
 | Custom formulas | Numeric arithmetic evaluates through a restricted AST; missing values, unsupported syntax, code-like expressions and division by zero remain unavailable. |
 | Build checks | Both examples validate and build six output files. Workbook XML contains date caches, hidden metric IDs and the merged legend across frozen columns. |
 
-## Live synthetic connector checks
+## Earlier live synthetic connector checks
 
-The Codex Google Drive plugin was used against separate reports containing invented data.
+Earlier verification used the Codex Google Drive plugin with separate synthetic reports. The latest workbook and reporting follow-up uses the local tests above.
 
 - Repeated writes updated the same interior date column on quarter and Full Year tabs.
 - Display labels and quarter-scoped targets updated independently of row-layout signatures, including catalog updates to other managed quarters.
@@ -38,7 +43,7 @@ The installable boundary is `skills/weekly-product-review/`. Development tests, 
 Run `python -B tests/verify_skill_install.py --skills-cli /path/to/skills/bin/cli.mjs --report .local/install-verification.json` from a clean checkout. The check uses an existing CLI, disables telemetry and installs from a temporary copy of Git-visible files. Synthetic markers exercise the package boundary.
 
 - Skills CLI 1.9.0 discovered and installed one Skill with the unchanged name `weekly-product-review`.
-- The installed manifest contains 19 runtime files. Byte hashes match the source. The package excludes tests, promotional images, development reports and local markers.
-- All 29 package links and entrypoint resource checks passed inside the installed Skill.
+- The development package contains 20 runtime files, including the creator workbook adapter. Byte hashes match the source. The package excludes tests, promotional images, development reports and local markers.
+- All 32 package link and entrypoint resource checks passed. Nine installed workflow groups passed on each Python version. Synthetic XLSX regression tests cover the workbook adapter's behaviour.
 - From a separate project directory, the installed collector returns eight expected synthetic candidates; creator validation/build, template scaffolding, CSV import, manual validation/build, XLSX round trip, date-keyed sync planning, add-week dry run and add-week pass.
 - Each build produces the six expected outputs. Dry runs preserve source bytes, and the installed files remain unchanged after the workflows.
